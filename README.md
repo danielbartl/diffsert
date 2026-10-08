@@ -2,6 +2,8 @@
 
 [![CI](https://github.com/danielbartl/diffsert/actions/workflows/ci.yml/badge.svg)](https://github.com/danielbartl/diffsert/actions/workflows/ci.yml)
 
+**Website:** https://danielbartl.github.io/diffsert/
+
 Change-aware upserts for MongoDB and Spring Data MongoDB. Only fields that really changed reach the oplog, so change
 streams, Debezium and other CDC consumers see real changes instead of a full replace on every write. Unchanged
 documents cause no write and no event at all.

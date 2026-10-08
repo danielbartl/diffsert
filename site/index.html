@@ -1,0 +1,996 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Diffsert</title>
+<meta name="description" content="Change-aware upserts for MongoDB and Spring Data MongoDB. Only fields that really changed reach the oplog, change streams and Debezium.">
+<meta property="og:title" content="Diffsert">
+<meta property="og:description" content="Write every document. Emit only real changes. Change-aware upserts for MongoDB and Spring Data MongoDB.">
+<meta property="og:type" content="website">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='6' fill='%23131A2A'/%3E%3Crect x='6' y='9' width='20' height='3' rx='1.5' fill='%235A6680'/%3E%3Crect x='6' y='15' width='20' height='4' rx='1' fill='%23FFD43B'/%3E%3Crect x='6' y='22' width='14' height='3' rx='1.5' fill='%235A6680'/%3E%3C/svg%3E">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:wdth,wght@62..125,400..900&family=Atkinson+Hyperlegible+Next:ital,wght@0,400;0,600;0,700;1,400&family=IBM+Plex+Mono:wght@400;500;600&display=swap">
+<style>
+/* Layout: a change ledger. Left-aligned editorial column; a highlighter marks only what changed,
+   and a 1,000-cell batch run is the page's central figure. */
+:root {
+  --paper: #F2F4F8;
+  --surface: #FFFFFF;
+  --ink: #131A2A;
+  --ink-2: #4B566B;
+  --ink-3: #6E7890;
+  --rule: #D6DCE6;
+  --hl: #FFD43B;
+  --hl-ink: #241C00;
+  --hl-soft: #FFF1B8;
+  --insert: #13865A;
+  --replace: #C93A52;
+  --cell: #DCE2EB;
+  --code-bg: #121A2B;
+  --code-fg: #DCE3EF;
+  --code-dim: #7D889E;
+  --code-key: #A9C3F2;
+  --code-str: #B9E4C6;
+  --code-rule: #26324A;
+
+  --display: "Archivo", "Arial Narrow", "Helvetica Neue", Arial, sans-serif;
+  --body: "Atkinson Hyperlegible Next", "Segoe UI", system-ui, -apple-system, sans-serif;
+  --mono: "IBM Plex Mono", ui-monospace, "SFMono-Regular", Menlo, Consolas, monospace;
+
+  --step--1: 0.875rem;
+  --step-0: 1.0625rem;
+  --step-1: 1.3125rem;
+  --step-2: 1.75rem;
+  --step-3: clamp(2rem, 1.4rem + 2.4vw, 2.75rem);
+  --step-4: clamp(2.6rem, 1.6rem + 4.6vw, 4.9rem);
+
+  --measure: 64ch;
+  --wide: 76rem;
+  --radius: 6px;
+  color-scheme: light;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --paper: #0D1320;
+    --surface: #141C2D;
+    --ink: #E8EDF5;
+    --ink-2: #A3AEC3;
+    --ink-3: #7F8AA1;
+    --rule: #263149;
+    --hl: #FFD43B;
+    --hl-ink: #241C00;
+    --hl-soft: #3A3215;
+    --insert: #3BC48B;
+    --replace: #F06A80;
+    --cell: #212B41;
+    --code-bg: #090E18;
+    --code-fg: #DCE3EF;
+    --code-dim: #75809A;
+    --code-key: #A9C3F2;
+    --code-str: #B9E4C6;
+    --code-rule: #1F2A40;
+    color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --paper: #0D1320;
+  --surface: #141C2D;
+  --ink: #E8EDF5;
+  --ink-2: #A3AEC3;
+  --ink-3: #7F8AA1;
+  --rule: #263149;
+  --hl: #FFD43B;
+  --hl-ink: #241C00;
+  --hl-soft: #3A3215;
+  --insert: #3BC48B;
+  --replace: #F06A80;
+  --cell: #212B41;
+  --code-bg: #090E18;
+  --code-fg: #DCE3EF;
+  --code-dim: #75809A;
+  --code-key: #A9C3F2;
+  --code-str: #B9E4C6;
+  --code-rule: #1F2A40;
+  color-scheme: dark;
+}
+
+*, *::before, *::after { box-sizing: border-box; }
+html { -webkit-text-size-adjust: 100%; scroll-behavior: smooth; }
+@media (prefers-reduced-motion: reduce) { html { scroll-behavior: auto; } }
+body {
+  margin: 0;
+  background: var(--paper);
+  color: var(--ink);
+  font-family: var(--body);
+  font-size: var(--step-0);
+  line-height: 1.6;
+  padding-inline: max(16px, env(safe-area-inset-left, 0px));
+  padding-block: 0;
+}
+img, svg { max-width: 100%; }
+[hidden] { display: none !important; }
+a { color: inherit; text-decoration-thickness: 1px; text-underline-offset: 3px; }
+a:hover { text-decoration-color: var(--hl); text-decoration-thickness: 3px; }
+:focus-visible { outline: 3px solid var(--hl); outline-offset: 2px; border-radius: 2px; }
+h1, h2, h3 { font-family: var(--display); text-wrap: balance; margin: 0; line-height: 1.05; }
+p { margin: 0; }
+code, pre, kbd { font-family: var(--mono); }
+.wrap { max-width: var(--wide); margin-inline: auto; }
+
+/* Highlighter: the page's one bold device */
+.hl {
+  background: linear-gradient(transparent 12%, var(--hl) 12%, var(--hl) 88%, transparent 88%);
+  color: var(--hl-ink);
+  padding-inline: 0.12em;
+  -webkit-box-decoration-break: clone;
+  box-decoration-break: clone;
+}
+
+/* ---------- header ---------- */
+.top {
+  position: sticky;
+  top: env(safe-area-inset-top, 0px);
+  z-index: 10;
+  background: color-mix(in srgb, var(--paper) 88%, transparent);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+  border-bottom: 1px solid var(--rule);
+  margin-inline: calc(-1 * max(16px, env(safe-area-inset-left, 0px)));
+  padding-inline: max(16px, env(safe-area-inset-left, 0px));
+}
+.top .wrap { display: flex; align-items: center; gap: 1.5rem; padding-block: 0.8rem; }
+.mark {
+  font-family: var(--display);
+  font-weight: 800;
+  font-stretch: 112%;
+  font-size: 1.3rem;
+  letter-spacing: -0.01em;
+  text-decoration: none;
+  display: inline-flex;
+  align-items: baseline;
+}
+.mark .hl { padding-inline: 0.08em; }
+.nav { display: flex; gap: 1.25rem; margin-left: auto; align-items: center; font-size: var(--step--1); }
+.nav a { text-decoration: none; color: var(--ink-2); }
+.nav a:hover { color: var(--ink); }
+.nav .gh { color: var(--ink); font-weight: 600; display: inline-flex; gap: 0.4rem; align-items: center; }
+.theme-btn {
+  background: none;
+  border: 1px solid var(--rule);
+  color: var(--ink-2);
+  border-radius: 999px;
+  font: 500 0.75rem/1 var(--mono);
+  padding: 0.45rem 0.7rem;
+  cursor: pointer;
+}
+.theme-btn:hover { color: var(--ink); border-color: var(--ink-3); }
+@media (max-width: 760px) { .nav .sec { display: none; } }
+
+/* ---------- hero ---------- */
+.hero { padding-block: clamp(2.5rem, 6vw, 5rem) clamp(2.5rem, 5vw, 4rem); }
+.hero .wrap {
+  display: grid;
+  grid-template-columns: minmax(0, 1.05fr) minmax(0, 0.95fr);
+  gap: clamp(2rem, 4vw, 4rem);
+  align-items: start;
+}
+@media (max-width: 960px) { .hero .wrap { grid-template-columns: minmax(0, 1fr); } }
+.eyebrow {
+  font: 600 0.78rem/1.3 var(--mono);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--ink-3);
+}
+.hero h1 {
+  font-size: var(--step-4);
+  font-weight: 850;
+  font-stretch: 115%;
+  letter-spacing: -0.025em;
+  line-height: 0.98;
+  margin-top: 1rem;
+}
+.hero h1 .quiet { font-weight: 500; font-stretch: 100%; color: var(--ink-2); display: block; }
+.lede { margin-top: 1.5rem; max-width: 52ch; font-size: var(--step-1); line-height: 1.5; color: var(--ink-2); }
+.lede strong { color: var(--ink); font-weight: 600; }
+.cta { display: flex; flex-wrap: wrap; gap: 0.75rem; margin-top: 2rem; }
+.btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  font-weight: 700;
+  font-size: 1rem;
+  text-decoration: none;
+  padding: 0.8rem 1.25rem;
+  border-radius: var(--radius);
+  border: 1.5px solid var(--ink);
+}
+.btn.primary { background: var(--ink); color: var(--paper); }
+.btn.primary:hover { background: var(--hl); color: var(--hl-ink); border-color: var(--hl); text-decoration: none; }
+.btn.ghost:hover { background: var(--surface); text-decoration: none; }
+.facts {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem 1.5rem;
+  margin-top: 2rem;
+  font: 500 0.82rem/1.4 var(--mono);
+  color: var(--ink-3);
+  padding: 0;
+  list-style: none;
+}
+.facts li::before { content: "▪ "; color: var(--hl); }
+
+/* events card in the hero */
+.events { display: grid; gap: 0.9rem; min-width: 0; }
+.event {
+  background: var(--code-bg);
+  color: var(--code-fg);
+  border-radius: var(--radius);
+  overflow: hidden;
+  min-width: 0;
+}
+.event header {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  padding: 0.65rem 1rem;
+  border-bottom: 1px solid var(--code-rule);
+  font: 500 0.78rem/1.3 var(--mono);
+  color: var(--code-dim);
+}
+.event header b { color: var(--code-fg); font-weight: 600; }
+.pill {
+  font: 600 0.7rem/1 var(--mono);
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  padding: 0.3rem 0.5rem;
+  border-radius: 3px;
+}
+.pill.replace { background: color-mix(in srgb, var(--replace) 22%, transparent); color: #FFB3C0; }
+.pill.update { background: var(--hl); color: var(--hl-ink); }
+.pill.none { border: 1px dashed var(--code-dim); color: var(--code-dim); }
+.event header .note { margin-left: auto; text-align: right; }
+.event pre { margin: 0; padding: 0.9rem 1rem 1rem; font-size: 0.82rem; line-height: 1.6; overflow-x: auto; }
+.event.noisy pre { color: var(--code-dim); }
+.event.noisy pre .k { color: var(--code-dim); }
+.mark-line { background: var(--hl); color: var(--hl-ink); border-radius: 2px; padding-inline: 0.2em; }
+.event .k { color: var(--code-key); }
+.event .s { color: var(--code-str); }
+.event .c { color: var(--code-dim); font-style: italic; }
+.mark-line .k, .mark-line .s { color: var(--hl-ink); }
+.silent {
+  border: 1.5px dashed var(--rule);
+  border-radius: var(--radius);
+  padding: 0.9rem 1rem;
+  display: flex;
+  gap: 0.75rem;
+  align-items: center;
+  font: 500 0.82rem/1.45 var(--mono);
+  color: var(--ink-3);
+}
+.silent .pill.none { border-color: var(--ink-3); color: var(--ink-3); }
+.events-cap { font-size: var(--step--1); color: var(--ink-3); }
+
+/* ---------- sections ---------- */
+section { padding-block: clamp(3rem, 7vw, 5.5rem); border-top: 1px solid var(--rule); }
+.sec-head { display: grid; gap: 1rem; max-width: var(--measure); }
+.sec-head h2 { font-size: var(--step-3); font-weight: 800; font-stretch: 108%; letter-spacing: -0.02em; }
+.sec-head p { color: var(--ink-2); }
+.prose { max-width: var(--measure); display: grid; gap: 1rem; color: var(--ink-2); }
+.prose strong { color: var(--ink); }
+code.inline, p code, li code, td code {
+  font-size: 0.86em;
+  background: var(--surface);
+  border: 1px solid var(--rule);
+  border-radius: 4px;
+  padding: 0.05em 0.35em;
+  white-space: nowrap;
+}
+
+/* ---------- batch run (waffle) ---------- */
+.run-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: clamp(1.5rem, 3vw, 3rem);
+  margin-top: 2.5rem;
+}
+@media (max-width: 820px) { .run-grid { grid-template-columns: minmax(0, 1fr); } }
+.run-panel { display: grid; gap: 1rem; min-width: 0; align-content: start; }
+.run-panel h3 { font-size: var(--step-1); font-weight: 700; font-stretch: 100%; display: flex; gap: 0.6rem; align-items: baseline; flex-wrap: wrap; }
+.run-panel h3 code { font-size: 0.85em; font-weight: 500; }
+.tally { display: flex; align-items: baseline; gap: 0.6rem; }
+.tally .num {
+  font-family: var(--display);
+  font-weight: 850;
+  font-stretch: 120%;
+  font-size: var(--step-3);
+  line-height: 1;
+  font-variant-numeric: tabular-nums;
+}
+.tally .unit { color: var(--ink-2); }
+.waffle {
+  display: grid;
+  grid-template-columns: repeat(40, minmax(0, 1fr));
+  gap: 2px;
+  max-width: 100%;
+}
+.waffle i { display: block; aspect-ratio: 1; border-radius: 1.5px; background: var(--cell); }
+.waffle i.replace { background: var(--replace); }
+.waffle i.update { background: var(--hl); }
+.waffle i.insert { background: var(--insert); }
+.waffle.sweeping i:not(.on) { background: var(--cell); }
+.legend { display: flex; flex-wrap: wrap; gap: 0.5rem 1.25rem; font: 500 0.8rem/1.4 var(--mono); color: var(--ink-2); padding: 0; margin: 0; list-style: none; }
+.legend li { display: inline-flex; gap: 0.45rem; align-items: center; font-variant-numeric: tabular-nums; }
+.legend i { width: 0.75rem; height: 0.75rem; border-radius: 2px; display: inline-block; background: var(--cell); }
+.legend i.replace { background: var(--replace); }
+.legend i.update { background: var(--hl); }
+.legend i.insert { background: var(--insert); }
+.run-foot { display: flex; flex-wrap: wrap; gap: 1rem; align-items: center; justify-content: space-between; margin-top: 2rem; }
+.run-foot p { color: var(--ink-3); font-size: var(--step--1); max-width: 60ch; }
+.replay {
+  font: 600 0.85rem/1 var(--mono);
+  background: var(--surface);
+  color: var(--ink);
+  border: 1.5px solid var(--ink);
+  border-radius: var(--radius);
+  padding: 0.65rem 1rem;
+  cursor: pointer;
+}
+.replay:hover { background: var(--hl); color: var(--hl-ink); border-color: var(--hl); }
+.replay:disabled { opacity: 0.5; cursor: progress; }
+
+/* ---------- situations table ---------- */
+.table-wrap { overflow-x: auto; margin-top: 2rem; border: 1px solid var(--rule); border-radius: var(--radius); background: var(--surface); }
+table { border-collapse: collapse; width: 100%; min-width: 40rem; font-size: 0.95rem; }
+th, td { text-align: left; padding: 0.75rem 1rem; border-bottom: 1px solid var(--rule); vertical-align: top; }
+tr:last-child td { border-bottom: 0; }
+th { font: 600 0.75rem/1.3 var(--mono); letter-spacing: 0.06em; text-transform: uppercase; color: var(--ink-3); background: var(--paper); }
+td.bad { color: var(--ink-3); }
+td.good strong { font-weight: 600; }
+
+/* ---------- how it works ---------- */
+.how { display: grid; grid-template-columns: minmax(0, 0.9fr) minmax(0, 1.1fr); gap: clamp(2rem, 4vw, 4rem); margin-top: 2.5rem; align-items: start; }
+@media (max-width: 960px) { .how { grid-template-columns: minmax(0, 1fr); } }
+.steps { list-style: none; padding: 0; margin: 0; display: grid; gap: 1.5rem; counter-reset: step; }
+.steps li { display: grid; grid-template-columns: 2.5rem minmax(0, 1fr); gap: 0.25rem 1rem; counter-increment: step; }
+.steps li::before {
+  content: counter(step);
+  grid-row: span 2;
+  font: 800 1.6rem/1 var(--display);
+  font-stretch: 120%;
+  color: var(--ink);
+  border-top: 3px solid var(--hl);
+  padding-top: 0.4rem;
+}
+.steps h3 { font-size: 1.1rem; font-weight: 700; font-stretch: 100%; line-height: 1.3; }
+.steps p { color: var(--ink-2); font-size: 0.98rem; }
+
+.code {
+  background: var(--code-bg);
+  color: var(--code-fg);
+  border-radius: var(--radius);
+  min-width: 0;
+  overflow: hidden;
+}
+.code .bar {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  padding: 0.55rem 0.6rem 0.55rem 1rem;
+  border-bottom: 1px solid var(--code-rule);
+  font: 500 0.75rem/1.3 var(--mono);
+  color: var(--code-dim);
+}
+.code .bar .copy {
+  margin-left: auto;
+  font: 600 0.72rem/1 var(--mono);
+  color: var(--code-fg);
+  background: transparent;
+  border: 1px solid var(--code-rule);
+  border-radius: 4px;
+  padding: 0.4rem 0.6rem;
+  cursor: pointer;
+}
+.code .bar .copy:hover { border-color: var(--code-dim); }
+.code pre { margin: 0; padding: 1rem; overflow-x: auto; font-size: 0.84rem; line-height: 1.65; }
+.code .k { color: var(--code-key); }
+.code .s { color: var(--code-str); }
+.code .c { color: var(--code-dim); font-style: italic; }
+.code .t { color: #F2C98B; }
+.code-stack { display: grid; gap: 1rem; min-width: 0; }
+
+/* ---------- quick start ---------- */
+.tabs { display: flex; flex-wrap: wrap; gap: 0.25rem; margin-top: 2rem; border-bottom: 1px solid var(--rule); }
+.tab {
+  font: 600 0.95rem/1 var(--body);
+  background: none;
+  color: var(--ink-2);
+  border: 0;
+  border-bottom: 3px solid transparent;
+  padding: 0.85rem 1rem 0.75rem;
+  margin-bottom: -1px;
+  cursor: pointer;
+}
+.tab:hover { color: var(--ink); }
+.tab[aria-selected="true"] { color: var(--ink); border-bottom-color: var(--hl); }
+.tab small { font: 500 0.72rem/1 var(--mono); color: var(--ink-3); margin-left: 0.4rem; }
+.panel { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 1.5rem; margin-top: 1.5rem; align-items: start; }
+@media (max-width: 960px) { .panel { grid-template-columns: minmax(0, 1fr); } }
+.panel .prose { font-size: 0.98rem; }
+.panel ul { margin: 0; padding-left: 1.2rem; display: grid; gap: 0.4rem; }
+
+/* ---------- options ---------- */
+.opt-table td:first-child code, .opt-table td:nth-child(2) code { white-space: nowrap; }
+
+/* ---------- versions ---------- */
+.versions { display: flex; flex-wrap: wrap; gap: 0.5rem; margin-top: 1.5rem; padding: 0; list-style: none; }
+.versions li {
+  font: 600 0.95rem/1 var(--mono);
+  padding: 0.6rem 0.85rem;
+  border: 1.5px solid var(--ink);
+  border-radius: var(--radius);
+  background: var(--surface);
+  display: inline-flex;
+  gap: 0.5rem;
+  align-items: center;
+}
+.versions li::before { content: ""; width: 0.5rem; height: 0.5rem; border-radius: 50%; background: var(--insert); }
+.req { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 1.5rem; margin-top: 2.5rem; }
+@media (max-width: 820px) { .req { grid-template-columns: minmax(0, 1fr); } }
+.req div { border-top: 1.5px solid var(--ink); padding-top: 0.9rem; display: grid; gap: 0.4rem; align-content: start; }
+.req h3 { font-size: 1rem; font-weight: 700; font-stretch: 100%; }
+.req p { color: var(--ink-2); font-size: 0.95rem; }
+
+/* ---------- modules ---------- */
+.modules { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 1rem; margin-top: 2.5rem; }
+@media (max-width: 900px) { .modules { grid-template-columns: minmax(0, 1fr); } }
+.module {
+  background: var(--surface);
+  border: 1px solid var(--rule);
+  border-radius: var(--radius);
+  padding: 1.25rem;
+  display: grid;
+  gap: 0.6rem;
+  align-content: start;
+  min-width: 0;
+}
+.module .art { font: 600 0.88rem/1.3 var(--mono); overflow-wrap: anywhere; }
+.module .pkg { font: 500 0.75rem/1.3 var(--mono); color: var(--ink-3); overflow-wrap: anywhere; }
+.module p { color: var(--ink-2); font-size: 0.95rem; }
+.module.lead { border-color: var(--ink); box-shadow: 4px 4px 0 var(--hl); }
+
+/* ---------- caveats ---------- */
+.caveats { list-style: none; padding: 0; margin: 2.5rem 0 0; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 2rem 3rem; }
+@media (max-width: 820px) { .caveats { grid-template-columns: minmax(0, 1fr); } }
+.caveats li { display: grid; gap: 0.5rem; align-content: start; }
+.caveats h3 { font-size: 1.1rem; font-weight: 700; font-stretch: 100%; line-height: 1.3; }
+.caveats p { color: var(--ink-2); font-size: 0.97rem; }
+
+/* ---------- footer ---------- */
+footer { border-top: 1px solid var(--rule); padding-block: 2.5rem 3rem; }
+footer .wrap { display: flex; flex-wrap: wrap; gap: 1rem 2rem; align-items: baseline; justify-content: space-between; font-size: var(--step--1); color: var(--ink-3); }
+footer .links { display: flex; flex-wrap: wrap; gap: 1.25rem; }
+</style>
+</head>
+<body>
+
+<header class="top">
+  <div class="wrap">
+    <a class="mark" href="#" aria-label="Diffsert home"><span class="hl">diff</span>sert</a>
+    <nav class="nav" aria-label="Sections">
+      <a class="sec" href="#run">Batch run</a>
+      <a class="sec" href="#how">How it works</a>
+      <a class="sec" href="#start">Quick start</a>
+      <a class="sec" href="#caveats">Caveats</a>
+      <a class="gh" href="https://github.com/danielbartl/diffsert">
+        <svg width="16" height="16" viewBox="0 0 16 16" aria-hidden="true" fill="currentColor"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z"/></svg>
+        GitHub
+      </a>
+      <button class="theme-btn" id="theme-btn" type="button" aria-label="Color theme: system">auto</button>
+    </nav>
+  </div>
+</header>
+
+<main>
+  <div class="hero">
+    <div class="wrap">
+      <div>
+        <p class="eyebrow">Change-aware upserts for MongoDB &amp; Spring Data</p>
+        <h1>Write every document. <span class="hl">Emit only real changes.</span></h1>
+        <p class="lede">
+          Diffsert writes your documents so that MongoDB records <strong>only the fields that changed</strong>.
+          Change streams and Debezium see a small <code class="inline">update</code> event instead of a full
+          <code class="inline">replace</code>, and documents that didn't change produce no event at all.
+        </p>
+        <div class="cta">
+          <a class="btn primary" href="#start">Quick start</a>
+          <a class="btn ghost" href="https://github.com/danielbartl/diffsert">View on GitHub</a>
+        </div>
+        <ul class="facts">
+          <li>MongoDB 5.0 – 9.0</li>
+          <li>Spring Boot 4 starter</li>
+          <li>Java 25</li>
+          <li>MIT</li>
+        </ul>
+      </div>
+
+      <div class="events" aria-label="Change events for the same write">
+        <div class="event noisy">
+          <header><span class="pill replace">replace</span> <b>save()</b> <span class="note">every field, every run</span></header>
+<pre><code>{ <span class="k">operationType</span>: <span class="s">"replace"</span>,
+  <span class="k">fullDocument</span>: {
+    <span class="k">_id</span>: <span class="s">"c1"</span>, <span class="k">name</span>: <span class="s">"Acme"</span>, <span class="k">city</span>: <span class="s">"Hamburg"</span>,
+    <span class="k">email</span>: <span class="s">"billing@acme.example"</span>, <span class="k">tier</span>: <span class="s">"gold"</span>,
+    <span class="k">jobRunId</span>: <span class="s">"run-2"</span>,
+    <span class="k">_createdAt</span>: ISODate(<span class="s">"2026-10-08T12:00Z"</span>),
+    <span class="k">_updatedAt</span>: ISODate(<span class="s">"2026-10-08T12:00Z"</span>) } }</code></pre>
+        </div>
+        <div class="event">
+          <header><span class="pill update">update</span> <b>Diffsert</b> <span class="note">the change, plus run metadata</span></header>
+<pre><code>{ <span class="k">operationType</span>: <span class="s">"update"</span>,
+  <span class="k">updateDescription</span>: {
+    <span class="k">updatedFields</span>: {
+      <span class="mark-line"><span class="k">city</span>: <span class="s">"Hamburg"</span></span>,
+      <span class="k">jobRunId</span>: <span class="s">"run-2"</span>,
+      <span class="k">_updatedAt</span>: ISODate(<span class="s">"2026-10-08T12:00Z"</span>) },
+    <span class="k">removedFields</span>: [] } }</code></pre>
+        </div>
+        <div class="silent"><span class="pill none">none</span><span>Nothing changed except <code class="inline">jobRunId</code> and <code class="inline">_updatedAt</code>? No write, no event.</span></div>
+      </div>
+    </div>
+  </div>
+
+  <section id="run">
+    <div class="wrap">
+      <div class="sec-head">
+        <p class="eyebrow">One batch run, 1,000 documents</p>
+        <h2>Your consumers should hear about 15 documents, not 1,000.</h2>
+        <p>
+          A sync job maps rows from another system to DTOs and writes them in batches. With <code>save()</code>,
+          every write replaces the whole document, so every document looks changed on every run. Run metadata such as
+          <code>jobRunId</code> makes it worse: it differs every time. Diffsert compares before it writes.
+        </p>
+      </div>
+
+      <div class="run-grid">
+        <div class="run-panel">
+          <h3><code>save()</code> / <code>replaceOne</code></h3>
+          <div class="tally"><span class="num" id="count-save">1,000</span><span class="unit">change events</span></div>
+          <div class="waffle" id="waffle-save" role="img" aria-label="1,000 documents, every one produces a replace event"></div>
+          <ul class="legend"><li><i class="replace"></i>1,000 replace</li></ul>
+        </div>
+        <div class="run-panel">
+          <h3>Diffsert <code>upsertAll</code></h3>
+          <div class="tally"><span class="num" id="count-diff">15</span><span class="unit">change events</span></div>
+          <div class="waffle" id="waffle-diff" role="img" aria-label="1,000 documents: 3 inserted, 12 updated, 985 unchanged with no event"></div>
+          <ul class="legend">
+            <li><i class="insert"></i>3 insert</li>
+            <li><i class="update"></i>12 update</li>
+            <li><i></i>985 unchanged, no event</li>
+          </ul>
+        </div>
+      </div>
+      <div class="run-foot">
+        <p>Example run. The result object reports the same split:
+          <code>requested=1000, inserted=3, updated=12, unchanged=985, notFound=0</code></p>
+        <button class="replay" id="replay" type="button">Replay the run</button>
+      </div>
+
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th scope="col">Situation</th><th scope="col"><code>save()</code> / <code>replaceOne</code></th><th scope="col">Diffsert</th></tr></thead>
+          <tbody>
+            <tr><td>Document is new</td><td><code>insert</code> event</td><td class="good"><code>insert</code> event</td></tr>
+            <tr><td>Nothing changed</td><td class="bad"><code>replace</code> event, full document</td><td class="good"><strong>No write, no event</strong></td></tr>
+            <tr><td>Only run metadata changed</td><td class="bad"><code>replace</code> event, full document</td><td class="good"><strong>No write, no event</strong> (ignored fields)</td></tr>
+            <tr><td><code>city</code> changed</td><td class="bad"><code>replace</code> event, full document</td><td class="good"><code>update</code> event with <code>city</code> and the ignored fields</td></tr>
+            <tr><td>A field was removed</td><td class="bad"><code>replace</code> event, full document</td><td class="good"><code>update</code> event, <code>removedFields: ["name"]</code></td></tr>
+            <tr><td><code>_createdAt</code> in the new document</td><td class="bad">Overwritten</td><td class="good">Stored value kept (preserved field)</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </section>
+
+  <section id="how">
+    <div class="wrap">
+      <div class="sec-head">
+        <p class="eyebrow">How it works</p>
+        <h2>A pipeline update instead of a replace.</h2>
+        <p>
+          Every write is an <code>updateOne</code> by <code>_id</code> with an aggregation pipeline. The stored result
+          is the same as with a replace, but MongoDB 5.0+ diffs it against the stored document and writes only the
+          difference to the oplog.
+        </p>
+      </div>
+
+      <div class="how">
+        <ol class="steps">
+          <li>
+            <h3>Wrap the new document in <code>$literal</code></h3>
+            <p>Values starting with <code>$</code>, such as <code>"$5 off"</code>, are written as text and never evaluated as expressions.</p>
+          </li>
+          <li>
+            <h3>Copy back preserved fields</h3>
+            <p>Fields like <code>_createdAt</code> keep their stored value once set. On the first insert, the new value is used.</p>
+          </li>
+          <li>
+            <h3>Compare without the ignored fields</h3>
+            <p>If only <code>jobRunId</code> or <code>_updatedAt</code> differ, the pipeline returns the stored document unchanged. MongoDB sees a no-op: matched, not modified, no event.</p>
+          </li>
+          <li>
+            <h3>MongoDB logs the delta</h3>
+            <p>For a real change, the server writes a <code>$v: 2</code> delta entry to the oplog. Change streams turn it into an <code>update</code> event with just the changed fields.</p>
+          </li>
+        </ol>
+
+        <div class="code-stack">
+          <div class="code">
+            <div class="bar">update pipeline, with ignored and preserved fields</div>
+<pre><code>[{ <span class="k">$replaceWith</span>: { <span class="k">$let</span>: {
+    <span class="k">vars</span>: { <span class="k">incoming</span>: { <span class="k">$literal</span>: <span class="t">&lt;new document&gt;</span> } },
+    <span class="k">in</span>: { <span class="k">$let</span>: {
+      <span class="k">vars</span>: { <span class="k">result</span>: <span class="t">&lt;incoming + stored _createdAt&gt;</span> },
+      <span class="k">in</span>: { <span class="k">$cond</span>: {
+        <span class="k">if</span>: { <span class="k">$and</span>: [ <span class="t">&lt;document existed&gt;</span>,
+              { <span class="k">$eq</span>: [ <span class="t">&lt;$$ROOT minus ignored fields&gt;</span>,
+                       <span class="t">&lt;$$result minus ignored fields&gt;</span> ] } ] },
+        <span class="k">then</span>: <span class="s">"$$ROOT"</span>,     <span class="c">// nothing relevant changed: no-op</span>
+        <span class="k">else</span>: <span class="s">"$$result"</span>
+      } } } } } } }]</code></pre>
+          </div>
+          <div class="code">
+            <div class="bar">resulting oplog entry</div>
+<pre><code>{ <span class="k">op</span>: <span class="s">"u"</span>, <span class="k">ns</span>: <span class="s">"app.customers"</span>, <span class="k">o2</span>: { <span class="k">_id</span>: <span class="s">"c1"</span> },
+  <span class="k">o</span>: { <span class="k">$v</span>: 2, <span class="k">diff</span>: { <span class="k">u</span>: {
+    <span class="k">city</span>: <span class="s">"Hamburg"</span>, <span class="k">jobRunId</span>: <span class="s">"run-2"</span>,
+    <span class="k">_updatedAt</span>: ISODate(<span class="s">"2026-10-08T12:00Z"</span>) } } } }</code></pre>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section id="start">
+    <div class="wrap">
+      <div class="sec-head">
+        <p class="eyebrow">Quick start</p>
+        <h2>Pick your level of Spring.</h2>
+        <p>Three modules, one mechanism. Until the first release, build with <code>mvn install</code> and use <code>0.1.0-SNAPSHOT</code>.</p>
+      </div>
+
+      <div class="tabs" role="tablist" aria-label="Integration">
+        <button class="tab" role="tab" id="tab-boot" aria-controls="panel-boot" aria-selected="true" type="button">Spring Boot <small>starter</small></button>
+        <button class="tab" role="tab" id="tab-data" aria-controls="panel-data" aria-selected="false" tabindex="-1" type="button">Spring Data <small>no Boot</small></button>
+        <button class="tab" role="tab" id="tab-core" aria-controls="panel-core" aria-selected="false" tabindex="-1" type="button">Plain driver <small>no Spring</small></button>
+      </div>
+
+      <div class="panel" role="tabpanel" id="panel-boot" aria-labelledby="tab-boot">
+        <div class="code-stack">
+          <div class="code">
+            <div class="bar">pom.xml <button class="copy" type="button">Copy</button></div>
+<pre><code><span class="k">&lt;dependency&gt;</span>
+    <span class="k">&lt;groupId&gt;</span>dev.jbaby<span class="k">&lt;/groupId&gt;</span>
+    <span class="k">&lt;artifactId&gt;</span>diffsert-spring-boot-starter<span class="k">&lt;/artifactId&gt;</span>
+    <span class="k">&lt;version&gt;</span>0.1.0-SNAPSHOT<span class="k">&lt;/version&gt;</span>
+<span class="k">&lt;/dependency&gt;</span></code></pre>
+          </div>
+          <div class="code">
+            <div class="bar">application.yml <button class="copy" type="button">Copy</button></div>
+<pre><code><span class="k">diffsert</span>:
+  <span class="k">ignore-fields</span>: jobRunId, _updatedAt   <span class="c"># alone, these are not a change</span>
+  <span class="k">preserve-fields</span>: _createdAt             <span class="c"># stored value wins once set</span></code></pre>
+          </div>
+          <div class="code">
+            <div class="bar">SyncJob.java <button class="copy" type="button">Copy</button></div>
+<pre><code><span class="k">@Autowired</span> Diffsert diffsert;
+
+BatchWriteResult result = diffsert.upsertAll(dtos, CustomerDto.<span class="k">class</span>);
+<span class="c">// requested=1000, inserted=3, updated=12, unchanged=985, notFound=0</span>
+
+WriteOutcome outcome = diffsert.upsert(dto);
+<span class="c">// INSERTED / UPDATED / UNCHANGED / NOT_FOUND</span></code></pre>
+          </div>
+        </div>
+        <div class="prose">
+          <p>The starter creates a <code>Diffsert</code> bean from the application's <code>MongoTemplate</code> and the <code>diffsert.*</code> properties.</p>
+          <ul>
+            <li>With Micrometer, written documents are counted as <code>diffsert.documents</code>, tagged with <code>collection</code> and <code>outcome</code>.</li>
+            <li>Every <code>DiffsertListener</code> bean is called after each write. A failing listener is logged and doesn't affect the write.</li>
+            <li>To configure options in code, define a <code>DiffsertOptions</code> bean; it wins over the properties.</li>
+            <li>Your own <code>Diffsert</code> bean replaces the auto-configured one, including the listener wiring. Attach metrics with <code>diffsert.withListener(diffsertMetrics)</code>.</li>
+          </ul>
+        </div>
+      </div>
+
+      <div class="panel" role="tabpanel" id="panel-data" aria-labelledby="tab-data" hidden>
+        <div class="code-stack">
+          <div class="code">
+            <div class="bar">pom.xml <button class="copy" type="button">Copy</button></div>
+<pre><code><span class="k">&lt;dependency&gt;</span>
+    <span class="k">&lt;groupId&gt;</span>dev.jbaby<span class="k">&lt;/groupId&gt;</span>
+    <span class="k">&lt;artifactId&gt;</span>diffsert-spring-data<span class="k">&lt;/artifactId&gt;</span>
+    <span class="k">&lt;version&gt;</span>0.1.0-SNAPSHOT<span class="k">&lt;/version&gt;</span>
+<span class="k">&lt;/dependency&gt;</span></code></pre>
+          </div>
+          <div class="code">
+            <div class="bar">DiffsertConfig.java <button class="copy" type="button">Copy</button></div>
+<pre><code>Diffsert diffsert = <span class="k">new</span> Diffsert(mongoTemplate, DiffsertOptions.builder()
+        .ignoreForChangeDetection(<span class="s">"jobRunId"</span>, <span class="s">"_updatedAt"</span>)
+        .preserveExistingValue(<span class="s">"_createdAt"</span>)
+        .build());
+
+diffsert.upsertAll(dtos, CustomerDto.<span class="k">class</span>);   <span class="c">// collection from @Document</span>
+diffsert.upsertAll(dtos, <span class="s">"customers"</span>);         <span class="c">// or explicit</span></code></pre>
+          </div>
+        </div>
+        <div class="prose">
+          <p>Entities are converted the way <code>save()</code> converts them, with Spring Data's <code>MongoConverter</code>: <code>@Id</code>, <code>@Field</code> and custom converters apply. Every entity needs an id.</p>
+          <ul>
+            <li>The type key <code>_class</code> is removed by default; <code>withTypeKeyRemoved(false)</code> keeps it.</li>
+            <li><code>update</code> and <code>updateAll</code> never insert.</li>
+            <li><code>toWriteModels(...)</code> returns the write models without executing them, for sessions, transactions or your own <code>bulkWrite</code>.</li>
+          </ul>
+        </div>
+      </div>
+
+      <div class="panel" role="tabpanel" id="panel-core" aria-labelledby="tab-core" hidden>
+        <div class="code-stack">
+          <div class="code">
+            <div class="bar">pom.xml <button class="copy" type="button">Copy</button></div>
+<pre><code><span class="k">&lt;dependency&gt;</span>
+    <span class="k">&lt;groupId&gt;</span>dev.jbaby<span class="k">&lt;/groupId&gt;</span>
+    <span class="k">&lt;artifactId&gt;</span>diffsert-core<span class="k">&lt;/artifactId&gt;</span>
+    <span class="k">&lt;version&gt;</span>0.1.0-SNAPSHOT<span class="k">&lt;/version&gt;</span>
+<span class="k">&lt;/dependency&gt;</span></code></pre>
+          </div>
+          <div class="code">
+            <div class="bar">Sync.java <button class="copy" type="button">Copy</button></div>
+<pre><code>DiffsertWriter writer = <span class="k">new</span> DiffsertWriter(DiffsertOptions.builder()
+        .ignoreForChangeDetection(<span class="s">"jobRunId"</span>, <span class="s">"_updatedAt"</span>)
+        .build());
+
+MongoCollection&lt;Document&gt; customers = database.getCollection(<span class="s">"customers"</span>);
+BatchWriteResult result = writer.upsertAll(customers, documents);</code></pre>
+          </div>
+        </div>
+        <div class="prose">
+          <p><code>diffsert-core</code> depends only on the MongoDB Java driver. It takes plain <code>Document</code>s with an <code>_id</code>.</p>
+          <ul>
+            <li>The collection is passed per call, so its codecs and write concern apply as you configured them.</li>
+            <li><code>buildPipeline(document)</code> returns the update pipeline itself, if you want to run it your own way.</li>
+            <li><code>withListener(...)</code> reports every write, including the succeeded part of a failed bulk write.</li>
+          </ul>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section id="options">
+    <div class="wrap">
+      <div class="sec-head">
+        <p class="eyebrow">Options</p>
+        <h2>Five settings, sensible defaults.</h2>
+      </div>
+      <div class="table-wrap opt-table">
+        <table>
+          <thead><tr><th scope="col">Builder</th><th scope="col">Property</th><th scope="col">Default</th><th scope="col">Meaning</th></tr></thead>
+          <tbody>
+            <tr><td><code>ignoreForChangeDetection(…)</code></td><td><code>diffsert.ignore-fields</code></td><td>none</td><td>Top-level fields that alone don't count as a change. They are written along with real changes.</td></tr>
+            <tr><td><code>preserveExistingValue(…)</code></td><td><code>diffsert.preserve-fields</code></td><td>none</td><td>Top-level fields whose stored value is kept once set, such as <code>_createdAt</code>.</td></tr>
+            <tr><td><code>replace()</code> / <code>merge()</code></td><td><code>diffsert.mode</code></td><td><code>replace</code></td><td><code>replace</code> removes fields missing from the new document. <code>merge</code> keeps fields that only the stored document has.</td></tr>
+            <tr><td><code>ordered(…)</code></td><td><code>diffsert.ordered</code></td><td><code>false</code></td><td>Ordered bulk writes stop at the first error. Unordered ones continue and are faster.</td></tr>
+            <tr><td><code>withTypeKeyRemoved(…)</code></td><td><code>diffsert.remove-type-key</code></td><td><code>true</code></td><td>Remove Spring Data's type key <code>_class</code> from converted entities.</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </section>
+
+  <section id="modules">
+    <div class="wrap">
+      <div class="sec-head">
+        <p class="eyebrow">Modules &amp; versions</p>
+        <h2>Tested against every MongoDB line it supports.</h2>
+        <p>The delta oplog behavior Diffsert relies on is a server implementation detail, not a documented guarantee. So CI runs every test against each supported MongoDB version, on every change and once a week.</p>
+      </div>
+      <ul class="versions" aria-label="MongoDB versions tested in CI">
+        <li>5.0</li><li>6.0</li><li>7.0</li><li>8.0</li><li>8.2</li><li>8.3</li><li>9.0</li>
+      </ul>
+
+      <div class="modules">
+        <div class="module lead">
+          <span class="art">diffsert-spring-boot-starter</span>
+          <span class="pkg">dev.jbaby.diffsert.boot</span>
+          <p>Auto-configured <code>Diffsert</code> bean from <code>diffsert.*</code> properties, listener beans and Micrometer counters.</p>
+        </div>
+        <div class="module">
+          <span class="art">diffsert-spring-data</span>
+          <span class="pkg">dev.jbaby.diffsert.spring</span>
+          <p>Entities in, converted with <code>MongoConverter</code>. For Spring applications without Boot auto-configuration.</p>
+        </div>
+        <div class="module">
+          <span class="art">diffsert-core</span>
+          <span class="pkg">dev.jbaby.diffsert</span>
+          <p><code>Document</code>s in, MongoDB Java driver only. The pipeline, options and results live here.</p>
+        </div>
+      </div>
+
+      <div class="req">
+        <div><h3>MongoDB 5.0 or later</h3><p>Change streams and Debezium need a replica set. The writes themselves also work on a standalone server.</p></div>
+        <div><h3>Java 25</h3><p>Built and tested with Java 25.</p></div>
+        <div><h3>Spring Boot 4</h3><p>The Spring modules are built against Spring Boot 4.0, Spring Data MongoDB 2025.1 and driver 5.6.</p></div>
+      </div>
+    </div>
+  </section>
+
+  <section id="caveats">
+    <div class="wrap">
+      <div class="sec-head">
+        <p class="eyebrow">Caveats</p>
+        <h2>What to know before you rely on it.</h2>
+        <p>Each of these is checked by an integration test on every supported MongoDB version.</p>
+      </div>
+      <ul class="caveats">
+        <li>
+          <h3>Small documents can still produce <code>replace</code> events</h3>
+          <p>MongoDB logs a delta only when it is smaller than the new document. For very small documents, or when almost every field changes, change streams emit a <code>replace</code> event. In a test with ten short fields, changing nine still gave an <code>update</code>. Consumers should handle both.</p>
+        </li>
+        <li>
+          <h3>Unchanged documents are not touched</h3>
+          <p>They keep their old run metadata, such as <code>jobRunId</code>. "Not written in this run" therefore can't detect records deleted at the source. Track the ids you saw separately.</p>
+        </li>
+        <li>
+          <h3>Keep field order and types stable</h3>
+          <p>A different field order counts as a change, for example after reordering DTO fields. A type change alone, such as <code>1</code> to <code>1L</code>, is written without ignored or preserved fields; with them, equal numbers count as unchanged and the stored type stays.</p>
+        </li>
+        <li>
+          <h3>Arrays and nested documents are reported by path</h3>
+          <p>A changed element appears as <code>tags.2</code>, a nested field as <code>address.street</code>. Shortened arrays appear in <code>truncatedArrays</code>.</p>
+        </li>
+        <li>
+          <h3>Top-level fields, matched by <code>_id</code></h3>
+          <p>Ignored and preserved fields must be top-level. Documents are matched by <code>_id</code> only, and every document needs one.</p>
+        </li>
+        <li>
+          <h3>Driver exceptions are not translated</h3>
+          <p>A <code>MongoBulkWriteException</code> reaches you as-is, with <code>getWriteErrors()</code>. Documents written before or besides the failed ones are still reported to listeners and metrics.</p>
+        </li>
+      </ul>
+    </div>
+  </section>
+</main>
+
+<footer>
+  <div class="wrap">
+    <span><span class="hl">diff</span>sert · MIT License · © 2026 Daniel Bartl</span>
+    <span class="links">
+      <a href="https://github.com/danielbartl/diffsert">Source</a>
+      <a href="https://github.com/danielbartl/diffsert/blob/main/README.md">README</a>
+      <a href="https://github.com/danielbartl/diffsert/actions/workflows/ci.yml">CI</a>
+    </span>
+  </div>
+</footer>
+
+<script>
+(function () {
+  // ---------- theme toggle: auto -> light -> dark ----------
+  var root = document.documentElement;
+  var btn = document.getElementById("theme-btn");
+  var modes = ["auto", "light", "dark"];
+  function apply(mode) {
+    if (mode === "auto") root.removeAttribute("data-theme"); else root.setAttribute("data-theme", mode);
+    btn.textContent = mode;
+    btn.setAttribute("aria-label", "Color theme: " + (mode === "auto" ? "system" : mode));
+  }
+  var saved = "auto";
+  try { saved = localStorage.getItem("diffsert-theme") || "auto"; } catch (e) {}
+  apply(modes.indexOf(saved) >= 0 ? saved : "auto");
+  btn.addEventListener("click", function () {
+    var next = modes[(modes.indexOf(btn.textContent) + 1) % modes.length];
+    apply(next);
+    try { localStorage.setItem("diffsert-theme", next); } catch (e) {}
+  });
+
+  // ---------- batch run waffles ----------
+  var N = 1000;
+  // Deterministic scatter of the 15 changed documents in the example run.
+  var seed = 20261008;
+  function rand() { seed = (seed * 1103515245 + 12345) % 2147483648; return seed / 2147483648; }
+  var kinds = new Array(N).fill("");
+  var placed = 0;
+  while (placed < 15) {
+    var i = Math.floor(rand() * N);
+    if (kinds[i]) continue;
+    kinds[i] = placed < 3 ? "insert" : "update";
+    placed++;
+  }
+  function build(el, kindOf) {
+    var frag = document.createDocumentFragment();
+    for (var j = 0; j < N; j++) {
+      var cell = document.createElement("i");
+      var k = kindOf(j);
+      if (k) cell.className = k;
+      frag.appendChild(cell);
+    }
+    el.appendChild(frag);
+    return el.children;
+  }
+  var saveCells = build(document.getElementById("waffle-save"), function () { return "replace"; });
+  var diffCells = build(document.getElementById("waffle-diff"), function (j) { return kinds[j]; });
+
+  // ---------- replay: sweep through the run, counting events as they fire ----------
+  var replay = document.getElementById("replay");
+  var countSave = document.getElementById("count-save");
+  var countDiff = document.getElementById("count-diff");
+  var reduced = window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+  function fmt(n) { return n.toLocaleString("en-US"); }
+  replay.addEventListener("click", function () {
+    if (reduced) return;
+    replay.disabled = true;
+    var waffles = [document.getElementById("waffle-save"), document.getElementById("waffle-diff")];
+    waffles.forEach(function (w) { w.classList.add("sweeping"); });
+    for (var j = 0; j < N; j++) { saveCells[j].classList.remove("on"); diffCells[j].classList.remove("on"); }
+    var done = 0, events = 0, start = null, duration = 2200;
+    function frame(t) {
+      if (start === null) start = t;
+      var target = Math.min(N, Math.round(((t - start) / duration) * N));
+      for (; done < target; done++) {
+        saveCells[done].classList.add("on");
+        diffCells[done].classList.add("on");
+        if (kinds[done]) events++;
+      }
+      countSave.textContent = fmt(done);
+      countDiff.textContent = fmt(events);
+      if (done < N) { requestAnimationFrame(frame); return; }
+      waffles.forEach(function (w) { w.classList.remove("sweeping"); });
+      replay.disabled = false;
+    }
+    requestAnimationFrame(frame);
+  });
+  if (reduced) replay.hidden = true;
+
+  // ---------- tabs ----------
+  var tabs = Array.prototype.slice.call(document.querySelectorAll('[role="tab"]'));
+  function select(tab) {
+    tabs.forEach(function (t) {
+      var on = t === tab;
+      t.setAttribute("aria-selected", on ? "true" : "false");
+      t.tabIndex = on ? 0 : -1;
+      document.getElementById(t.getAttribute("aria-controls")).hidden = !on;
+    });
+  }
+  tabs.forEach(function (tab, idx) {
+    tab.addEventListener("click", function () { select(tab); });
+    tab.addEventListener("keydown", function (e) {
+      var d = e.key === "ArrowRight" ? 1 : e.key === "ArrowLeft" ? -1 : 0;
+      if (!d) return;
+      var next = tabs[(idx + d + tabs.length) % tabs.length];
+      select(next);
+      next.focus();
+    });
+  });
+
+  // ---------- copy buttons ----------
+  document.querySelectorAll(".code .copy").forEach(function (b) {
+    b.addEventListener("click", function () {
+      var pre = b.closest(".code").querySelector("pre");
+      var text = pre.innerText;
+      function done(label) { b.textContent = label; setTimeout(function () { b.textContent = "Copy"; }, 1600); }
+      if (navigator.clipboard && navigator.clipboard.writeText) {
+        navigator.clipboard.writeText(text).then(function () { done("Copied"); }, function () { selectText(pre); done("Selected"); });
+      } else { selectText(pre); done("Selected"); }
+    });
+  });
+  function selectText(el) {
+    var range = document.createRange();
+    range.selectNodeContents(el);
+    var sel = window.getSelection();
+    sel.removeAllRanges();
+    sel.addRange(range);
+  }
+})();
+</script>
+</body>
+</html>

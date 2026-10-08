@@ -49,6 +49,8 @@ so downstream logic fired for every document even when nothing relevant changed.
 - The IT image is set by `-Dmongo.image=mongo:<tag>` (default `mongo:7.0.43`). Testcontainers 2's `MongoDBContainer`
   needs `.withReplicaSet()` for change streams. The ITs passed on 5.0.33, 6.0.28, 7.0.43, 8.0.32, 8.2.12, 8.3.11
   and 9.0.2 (2026-10-08).
+- Landing page: `site/index.html` (single file, no build), deployed to https://danielbartl.github.io/diffsert/ by
+  `.github/workflows/pages.yml` on changes under `site/`. Keep it in sync with the README.
 - Tests encode the intended behavior: do not weaken assertions to make them pass without understanding why they fail.
 
 ## Next steps (in order)
