@@ -37,7 +37,9 @@ jobs:
           server-password: CENTRAL_PASSWORD
 
       - name: Set version from tag
-        run: mvn -B -ntp versions:set -DnewVersion="${GITHUB_REF_NAME#v}" -DgenerateBackupPoms=false -DprocessAllModules=true
+        run: |
+          mvn -v
+          mvn -B -ntp versions:set -DnewVersion="${GITHUB_REF_NAME#v}" -DgenerateBackupPoms=false -DprocessAllModules=true
 
       - name: Test, sign and publish to Maven Central
         run: mvn -B -ntp -Prelease deploy
@@ -46,6 +48,15 @@ jobs:
           CENTRAL_PASSWORD: ${{ secrets.CENTRAL_PASSWORD }}
           MAVEN_GPG_KEY: ${{ secrets.MAVEN_GPG_KEY }}
           MAVEN_GPG_PASSPHRASE: ${{ secrets.MAVEN_GPG_PASSPHRASE }}
+
+      - name: Upload the bundle for inspection
+        if: failure()
+        uses: actions/upload-artifact@v7
+        with:
+          name: central-bundle
+          path: |
+            target/central-staging/
+            target/central-publishing/
 
       - name: Create GitHub release
         run: gh release create "$GITHUB_REF_NAME" --verify-tag --generate-notes --title "Diffsert ${GITHUB_REF_NAME#v}"
