@@ -12,6 +12,14 @@
     <name>Diffsert</name>
     <description>Change-aware upserts for Spring Data MongoDB: only fields that really changed reach the oplog and change streams.</description>
 
+    <licenses>
+        <license>
+            <name>MIT License</name>
+            <url>https://opensource.org/license/mit</url>
+            <distribution>repo</distribution>
+        </license>
+    </licenses>
+
     <properties>
         <maven.compiler.release>25</maven.compiler.release>
         <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>

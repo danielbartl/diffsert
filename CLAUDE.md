@@ -55,7 +55,7 @@ so downstream logic fired for every document even when nothing relevant changed.
    (MongoConverter-based entity conversion), `diffsert-spring-boot-starter` (auto-configuration, properties such as
    `diffsert.ignore-fields` / `diffsert.preserve-fields`, Micrometer counters for inserted/updated/unchanged).
 5. README with the problem, the mechanism, supported versions, usage, and caveats (below).
-6. Publishing: LICENSE, `central-publishing-maven-plugin`, sources/javadoc jars, GPG signing, release workflow.
+6. Publishing (MIT license already in `LICENSE` and `pom.xml`): `central-publishing-maven-plugin`, sources/javadoc jars, GPG signing, release workflow.
 7. Later ideas: reactive variant, nested (dotted) ignored/preserved fields, optional change stream verification
    helper (sentinel-based event collection as in the IT).
 
@@ -72,6 +72,5 @@ so downstream logic fired for every document even when nothing relevant changed.
 ## Open decisions (ask the owner)
 
 - Final project name (candidates discussed: Diffsert, Hush, Stillwrite; avoid "MongoDelta", already taken).
-- License (Apache 2.0 is the usual choice for Spring ecosystem libraries).
 - Minimum Spring Data version (built against Spring Boot 4.0.x / Spring Data 2025.1). Java baseline is 25 (owner's
   choice; Spring Boot 4 itself only requires 17).

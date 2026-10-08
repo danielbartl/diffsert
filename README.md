@@ -38,3 +38,7 @@ class DiffsertConfig {
 ## Requirements
 
 MongoDB 5.0 or later. Change streams require a replica set.
+
+## License
+
+[MIT](LICENSE)
