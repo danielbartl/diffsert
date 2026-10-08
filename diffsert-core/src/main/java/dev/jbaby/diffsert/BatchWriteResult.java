@@ -5,7 +5,7 @@ import java.util.List;
 import org.bson.BsonValue;
 
 /**
- * Result of a batch write with {@link Diffsert}.
+ * Result of a batch write with {@link DiffsertWriter}.
  *
  * @param requested   number of documents passed in
  * @param matched     documents that already existed
@@ -21,6 +21,16 @@ public record BatchWriteResult(int requested, int matched, int modified, int ins
 
     public static BatchWriteResult empty() {
         return new BatchWriteResult(0, 0, 0, 0, List.of());
+    }
+
+    /** The result of a single write, as reported to a {@link DiffsertListener}. */
+    static BatchWriteResult of(WriteOutcome outcome, BsonValue insertedId) {
+        return switch (outcome) {
+            case INSERTED -> new BatchWriteResult(1, 0, 0, 1, List.of(insertedId));
+            case UPDATED -> new BatchWriteResult(1, 1, 1, 0, List.of());
+            case UNCHANGED -> new BatchWriteResult(1, 1, 0, 0, List.of());
+            case NOT_FOUND -> new BatchWriteResult(1, 0, 0, 0, List.of());
+        };
     }
 
     /** Existing documents that were left untouched because nothing relevant changed. */

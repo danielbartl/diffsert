@@ -5,12 +5,12 @@
     <modelVersion>4.0.0</modelVersion>
 
     <groupId>dev.jbaby</groupId>
-    <artifactId>diffsert</artifactId>
+    <artifactId>diffsert-parent</artifactId>
     <version>0.1.0-SNAPSHOT</version>
-    <packaging>jar</packaging>
+    <packaging>pom</packaging>
 
-    <name>Diffsert</name>
-    <description>Change-aware upserts for Spring Data MongoDB: only fields that really changed reach the oplog and change streams.</description>
+    <name>Diffsert Parent</name>
+    <description>Change-aware upserts for MongoDB: only fields that really changed reach the oplog and change streams.</description>
 
     <licenses>
         <license>
@@ -19,6 +19,12 @@
             <distribution>repo</distribution>
         </license>
     </licenses>
+
+    <modules>
+        <module>diffsert-core</module>
+        <module>diffsert-spring-data</module>
+        <module>diffsert-spring-boot-starter</module>
+    </modules>
 
     <properties>
         <maven.compiler.release>25</maven.compiler.release>
@@ -29,6 +35,22 @@
 
     <dependencyManagement>
         <dependencies>
+            <dependency>
+                <groupId>dev.jbaby</groupId>
+                <artifactId>diffsert-core</artifactId>
+                <version>${project.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>dev.jbaby</groupId>
+                <artifactId>diffsert-core</artifactId>
+                <version>${project.version}</version>
+                <type>test-jar</type>
+            </dependency>
+            <dependency>
+                <groupId>dev.jbaby</groupId>
+                <artifactId>diffsert-spring-data</artifactId>
+                <version>${project.version}</version>
+            </dependency>
             <!-- Imported as a BOM only, so the library does not inherit Boot's plugin configuration. -->
             <dependency>
                 <groupId>org.springframework.boot</groupId>
@@ -39,38 +61,6 @@
             </dependency>
         </dependencies>
     </dependencyManagement>
-
-    <dependencies>
-        <dependency>
-            <groupId>org.springframework.data</groupId>
-            <artifactId>spring-data-mongodb</artifactId>
-        </dependency>
-        <dependency>
-            <groupId>org.mongodb</groupId>
-            <artifactId>mongodb-driver-sync</artifactId>
-        </dependency>
-
-        <dependency>
-            <groupId>org.junit.jupiter</groupId>
-            <artifactId>junit-jupiter</artifactId>
-            <scope>test</scope>
-        </dependency>
-        <dependency>
-            <groupId>org.testcontainers</groupId>
-            <artifactId>testcontainers-junit-jupiter</artifactId>
-            <scope>test</scope>
-        </dependency>
-        <dependency>
-            <groupId>org.testcontainers</groupId>
-            <artifactId>testcontainers-mongodb</artifactId>
-            <scope>test</scope>
-        </dependency>
-        <dependency>
-            <groupId>org.slf4j</groupId>
-            <artifactId>slf4j-simple</artifactId>
-            <scope>test</scope>
-        </dependency>
-    </dependencies>
 
     <build>
         <!-- The Boot BOM manages dependencies only, so plugin versions are pinned here. -->
@@ -91,13 +81,14 @@
                     <artifactId>maven-failsafe-plugin</artifactId>
                     <version>3.5.6</version>
                 </plugin>
+                <plugin>
+                    <groupId>org.apache.maven.plugins</groupId>
+                    <artifactId>maven-jar-plugin</artifactId>
+                    <version>3.5.1</version>
+                </plugin>
             </plugins>
         </pluginManagement>
         <plugins>
-            <plugin>
-                <groupId>org.apache.maven.plugins</groupId>
-                <artifactId>maven-surefire-plugin</artifactId>
-            </plugin>
             <!-- *IT classes run in the integration-test phase: mvn verify -->
             <plugin>
                 <groupId>org.apache.maven.plugins</groupId>

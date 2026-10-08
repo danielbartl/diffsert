@@ -6,10 +6,8 @@ import java.util.List;
 
 import org.bson.BsonValue;
 import org.bson.Document;
-import org.springframework.data.mongodb.core.MongoOperations;
-import org.springframework.data.mongodb.core.convert.MongoConverter;
-import org.springframework.data.mongodb.core.convert.MongoTypeMapper;
 
+import com.mongodb.MongoBulkWriteException;
 import com.mongodb.bulk.BulkWriteResult;
 import com.mongodb.bulk.BulkWriteUpsert;
 import com.mongodb.client.MongoCollection;
@@ -34,117 +32,86 @@ import com.mongodb.client.result.UpdateResult;
  * Fields configured via {@link DiffsertOptions#ignoredFields()} don't count as a change on their own, and fields
  * configured via {@link DiffsertOptions#preservedFields()} keep their stored value.
  * <p>
- * Entities are converted with Spring Data's {@link MongoConverter}, so {@code @Id}, {@code @Field} and custom
- * converters apply as with {@code save()}. Every entity must have an id.
+ * Works with plain driver {@link Document}s; every document must have an {@code _id}. The collection is passed per
+ * call, so its codec registry, write concern etc. apply as configured by the caller.
  * <p>
- * Driver exceptions such as {@link com.mongodb.MongoBulkWriteException} are thrown as-is (not translated to Spring's
- * {@code DataAccessException}), so failed operations can be inspected via {@code getWriteErrors()}.
+ * Driver exceptions such as {@link com.mongodb.MongoBulkWriteException} are thrown as-is, so failed operations can be
+ * inspected via {@code getWriteErrors()}.
  * <p>
  * Instances are immutable and thread-safe.
  */
-public class Diffsert {
+public final class DiffsertWriter {
 
-    private final MongoOperations mongo;
     private final DiffsertOptions options;
+    private final DiffsertListener listener;
 
-    public Diffsert(MongoOperations mongo) {
-        this(mongo, DiffsertOptions.defaults());
+    public DiffsertWriter() {
+        this(DiffsertOptions.defaults());
     }
 
-    public Diffsert(MongoOperations mongo, DiffsertOptions options) {
-        if (mongo == null || options == null) {
-            throw new IllegalArgumentException("mongo and options must not be null");
+    public DiffsertWriter(DiffsertOptions options) {
+        this(options, DiffsertListener.NONE);
+    }
+
+    private DiffsertWriter(DiffsertOptions options, DiffsertListener listener) {
+        if (options == null || listener == null) {
+            throw new IllegalArgumentException("options and listener must not be null");
         }
-        this.mongo = mongo;
         this.options = options;
+        this.listener = listener;
     }
 
     public DiffsertOptions options() {
         return options;
     }
 
-    /** Returns a writer for the same database with different options. */
-    public Diffsert withOptions(DiffsertOptions newOptions) {
-        return new Diffsert(mongo, newOptions);
+    /** Returns a writer with different options and the same listener. */
+    public DiffsertWriter withOptions(DiffsertOptions newOptions) {
+        return new DiffsertWriter(newOptions, listener);
+    }
+
+    /** Returns a writer that reports every write to {@code newListener} (replacing the current one). */
+    public DiffsertWriter withListener(DiffsertListener newListener) {
+        return new DiffsertWriter(options, newListener);
     }
 
     // ---------------------------------------------------------------- single document
 
-    /** Inserts or updates one entity in the collection mapped to its class. */
-    public WriteOutcome upsert(Object entity) {
-        return upsert(entity, collectionNameOf(entity.getClass()));
+    /** Inserts or updates one document. */
+    public WriteOutcome upsert(MongoCollection<Document> collection, Document doc) {
+        return writeOne(collection, doc, true);
     }
 
-    public WriteOutcome upsert(Object entity, String collectionName) {
-        return writeOne(entity, collectionName, true);
-    }
-
-    /** Updates one entity if it exists; never inserts. */
-    public WriteOutcome update(Object entity) {
-        return update(entity, collectionNameOf(entity.getClass()));
-    }
-
-    public WriteOutcome update(Object entity, String collectionName) {
-        return writeOne(entity, collectionName, false);
+    /** Updates one document if it exists; never inserts. */
+    public WriteOutcome update(MongoCollection<Document> collection, Document doc) {
+        return writeOne(collection, doc, false);
     }
 
     // ---------------------------------------------------------------- batch
 
-    /** Inserts or updates all entities with one bulk write. Collection is the one mapped to {@code entityType}. */
-    public <T> BatchWriteResult upsertAll(Collection<? extends T> entities, Class<T> entityType) {
-        return upsertAll(entities, collectionNameOf(entityType));
+    /** Inserts or updates all documents with one bulk write. */
+    public BatchWriteResult upsertAll(MongoCollection<Document> collection, Collection<? extends Document> docs) {
+        return writeAll(collection, docs, true);
     }
 
-    public BatchWriteResult upsertAll(Collection<?> entities, String collectionName) {
-        return writeAll(entities, collectionName, true);
-    }
-
-    /** Updates all entities that exist with one bulk write; never inserts. */
-    public <T> BatchWriteResult updateAll(Collection<? extends T> entities, Class<T> entityType) {
-        return updateAll(entities, collectionNameOf(entityType));
-    }
-
-    public BatchWriteResult updateAll(Collection<?> entities, String collectionName) {
-        return writeAll(entities, collectionName, false);
+    /** Updates all documents that exist with one bulk write; never inserts. */
+    public BatchWriteResult updateAll(MongoCollection<Document> collection, Collection<? extends Document> docs) {
+        return writeAll(collection, docs, false);
     }
 
     // ---------------------------------------------------------------- building blocks
 
     /**
      * Builds the write models without executing them, e.g. to run them in a session or together with other
-     * operations in your own {@code bulkWrite}.
+     * operations in your own {@code bulkWrite}. The listener is not called for these.
      */
-    public List<WriteModel<Document>> toWriteModels(Collection<?> entities, boolean upsert) {
+    public List<WriteModel<Document>> toWriteModels(Collection<? extends Document> docs, boolean upsert) {
         UpdateOptions updateOptions = new UpdateOptions().upsert(upsert);
-        List<WriteModel<Document>> models = new ArrayList<>(entities.size());
-        for (Object entity : entities) {
-            Document doc = toDocument(entity);
-            models.add(new UpdateOneModel<>(Filters.eq("_id", doc.get("_id")), buildPipeline(doc), updateOptions));
+        List<WriteModel<Document>> models = new ArrayList<>(docs.size());
+        for (Document doc : docs) {
+            models.add(new UpdateOneModel<>(Filters.eq("_id", idOf(doc)), buildPipeline(doc), updateOptions));
         }
         return models;
-    }
-
-    /** Converts an entity into the BSON document that would be written. */
-    public Document toDocument(Object entity) {
-        if (entity == null) {
-            throw new IllegalArgumentException("entity must not be null");
-        }
-        Document doc;
-        if (entity instanceof Document d) {
-            doc = new Document(d);
-        } else {
-            doc = new Document();
-            MongoConverter converter = mongo.getConverter();
-            converter.write(entity, doc);
-            if (options.removeTypeKey()) {
-                MongoTypeMapper typeMapper = converter.getTypeMapper();
-                doc.keySet().removeIf(typeMapper::isTypeKey);
-            }
-        }
-        if (doc.get("_id") == null) {
-            throw new IllegalArgumentException("entity has no id: " + entity);
-        }
-        return doc;
     }
 
     /**
@@ -215,40 +182,81 @@ public class Diffsert {
         return expr;
     }
 
-    private WriteOutcome writeOne(Object entity, String collectionName, boolean upsert) {
-        Document doc = toDocument(entity);
-        UpdateResult r = collection(collectionName).updateOne(
-                Filters.eq("_id", doc.get("_id")),
+    private static Object idOf(Document doc) {
+        if (doc == null) {
+            throw new IllegalArgumentException("document must not be null");
+        }
+        Object id = doc.get("_id");
+        if (id == null) {
+            throw new IllegalArgumentException("document has no _id: " + doc.toJson());
+        }
+        return id;
+    }
+
+    private WriteOutcome writeOne(MongoCollection<Document> collection, Document doc, boolean upsert) {
+        UpdateResult r = collection.updateOne(
+                Filters.eq("_id", idOf(doc)),
                 buildPipeline(doc),
                 new UpdateOptions().upsert(upsert));
 
+        WriteOutcome outcome;
         if (r.getUpsertedId() != null) {
-            return WriteOutcome.INSERTED;
+            outcome = WriteOutcome.INSERTED;
+        } else if (r.getModifiedCount() > 0) {
+            outcome = WriteOutcome.UPDATED;
+        } else {
+            outcome = r.getMatchedCount() > 0 ? WriteOutcome.UNCHANGED : WriteOutcome.NOT_FOUND;
         }
-        if (r.getModifiedCount() > 0) {
-            return WriteOutcome.UPDATED;
-        }
-        return r.getMatchedCount() > 0 ? WriteOutcome.UNCHANGED : WriteOutcome.NOT_FOUND;
+        listener.onWrite(collectionNameOf(collection), BatchWriteResult.of(outcome, r.getUpsertedId()));
+        return outcome;
     }
 
-    private BatchWriteResult writeAll(Collection<?> entities, String collectionName, boolean upsert) {
-        if (entities == null || entities.isEmpty()) {
+    private BatchWriteResult writeAll(MongoCollection<Document> collection, Collection<? extends Document> docs,
+            boolean upsert) {
+        if (docs == null || docs.isEmpty()) {
             return BatchWriteResult.empty();
         }
-        BulkWriteResult r = collection(collectionName).bulkWrite(
-                toWriteModels(entities, upsert),
-                new BulkWriteOptions().ordered(options.ordered()));
+        List<WriteModel<Document>> models = toWriteModels(docs, upsert);
+        BulkWriteResult r;
+        try {
+            r = collection.bulkWrite(models, new BulkWriteOptions().ordered(options.ordered()));
+        } catch (MongoBulkWriteException e) {
+            // Some documents may have been written (and emitted change events) before or besides the failed ones.
+            // Report those, then rethrow.
+            try {
+                listener.onWrite(collectionNameOf(collection), toResult(e.getWriteResult(), succeeded(e, docs.size())));
+            } catch (RuntimeException listenerFailure) {
+                e.addSuppressed(listenerFailure);
+            }
+            throw e;
+        }
 
+        BatchWriteResult result = toResult(r, docs.size());
+        listener.onWrite(collectionNameOf(collection), result);
+        return result;
+    }
+
+    private static BatchWriteResult toResult(BulkWriteResult r, int requested) {
         List<BsonValue> insertedIds = r.getUpserts().stream().map(BulkWriteUpsert::getId).toList();
-        return new BatchWriteResult(entities.size(), r.getMatchedCount(), r.getModifiedCount(),
-                insertedIds.size(), insertedIds);
+        return new BatchWriteResult(requested, r.getMatchedCount(), r.getModifiedCount(), insertedIds.size(),
+                insertedIds);
     }
 
-    private MongoCollection<Document> collection(String collectionName) {
-        return mongo.getCollection(collectionName);
+    /**
+     * Number of operations that were executed without error: an ordered bulk write stops at the first error,
+     * an unordered one executes all others. A write concern error alone means every operation was applied.
+     */
+    private int succeeded(MongoBulkWriteException e, int total) {
+        if (e.getWriteErrors().isEmpty()) {
+            return total;
+        }
+        if (options.ordered()) {
+            return e.getWriteErrors().get(0).getIndex();
+        }
+        return total - e.getWriteErrors().size();
     }
 
-    private String collectionNameOf(Class<?> type) {
-        return mongo.getCollectionName(type);
+    private static String collectionNameOf(MongoCollection<Document> collection) {
+        return collection.getNamespace().getCollectionName();
     }
 }

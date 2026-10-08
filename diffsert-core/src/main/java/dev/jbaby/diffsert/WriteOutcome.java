@@ -1,6 +1,6 @@
 package dev.jbaby.diffsert;
 
-/** Result of writing a single document with {@link Diffsert}. */
+/** Result of writing a single document with {@link DiffsertWriter}. */
 public enum WriteOutcome {
     /** The document did not exist and was inserted (upsert only). */
     INSERTED,

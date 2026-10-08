@@ -1,9 +1,8 @@
-package dev.jbaby.diffsert;
+package dev.jbaby.diffsert.spring;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
-import java.time.Duration;
 import java.time.Instant;
 import java.time.temporal.ChronoUnit;
 import java.util.ArrayList;
@@ -29,20 +28,20 @@ import com.mongodb.client.MongoCollection;
 import com.mongodb.client.model.changestream.ChangeStreamDocument;
 import com.mongodb.client.model.changestream.OperationType;
 
+import dev.jbaby.diffsert.BatchWriteResult;
+import dev.jbaby.diffsert.DiffsertOptions;
+import dev.jbaby.diffsert.TestMongo;
+import dev.jbaby.diffsert.WriteOutcome;
+
 /**
- * Verifies the writer against a real MongoDB (single-node replica set, so change streams work) by looking at the
+ * Verifies entity writes against a real MongoDB (single-node replica set, so change streams work) by looking at the
  * change events that each write produces.
  */
 @Testcontainers
 class DiffsertIT {
 
-    /**
-     * Server image, overridable with {@code -Dmongo.image=mongo:8.0.32} to test other versions. Testcontainers 2
-     * starts a standalone server unless asked for a replica set; change streams need one.
-     */
     @Container
-    static final MongoDBContainer MONGO =
-            new MongoDBContainer(System.getProperty("mongo.image", "mongo:7.0.43")).withReplicaSet();
+    static final MongoDBContainer MONGO = TestMongo.container();
 
     static MongoClient client;
     static MongoTemplate template;
@@ -214,36 +213,34 @@ class DiffsertIT {
         assertEquals(WriteOutcome.UPDATED, plain.upsert(a.nextRun()));
     }
 
+    @Test
+    void keepsTypeKeyWhenAsked() {
+        writer.withTypeKeyRemoved(false).upsert(customer("c1", "Acme", "Berlin"));
+
+        assertEquals(Customer.class.getName(), stored("c1").getString("_class"));
+    }
+
+    @Test
+    void reportsWritesToListener() {
+        List<String> reported = new ArrayList<>();
+        Diffsert listening = writer.withListener((collectionName, result) -> reported.add(collectionName + ": " + result));
+        Customer a = customer("c1", "Acme", "Berlin");
+
+        listening.upsert(a);
+        listening.upsertAll(List.of(a.nextRun(), customer("c2", "Globex", "Munich")), Customer.class);
+
+        assertEquals(List.of(
+                "customers: requested=1, inserted=1, updated=0, unchanged=0, notFound=0",
+                "customers: requested=2, inserted=1, updated=0, unchanged=1, notFound=0"), reported);
+    }
+
     // ---------------------------------------------------------------- helpers
 
     private Document stored(String id) {
         return collection.find(new Document("_id", id)).first();
     }
 
-    /**
-     * Collects the change events caused by {@code action}. A sentinel insert afterwards marks the end, so the method
-     * also works (and returns an empty list) when the action produced no events at all.
-     */
     private List<ChangeStreamDocument<Document>> eventsDuring(Runnable action) {
-        String sentinel = "sentinel-" + UUID.randomUUID();
-        try (var cursor = collection.watch().cursor()) {
-            action.run();
-            collection.insertOne(new Document("_id", sentinel));
-
-            List<ChangeStreamDocument<Document>> events = new ArrayList<>();
-            long deadline = System.nanoTime() + Duration.ofSeconds(10).toNanos();
-            while (System.nanoTime() < deadline) {
-                ChangeStreamDocument<Document> ev = cursor.tryNext();
-                if (ev == null) {
-                    continue;
-                }
-                if (sentinel.equals(ev.getDocumentKey().getString("_id").getValue())) {
-                    collection.deleteOne(new Document("_id", sentinel));
-                    return events;
-                }
-                events.add(ev);
-            }
-            throw new AssertionError("sentinel change event not received within 10s");
-        }
+        return TestMongo.eventsDuring(collection, action);
     }
 }

@@ -6,7 +6,7 @@ import java.util.List;
 import java.util.Set;
 
 /**
- * Immutable configuration for a {@link Diffsert}.
+ * Immutable configuration for a {@link DiffsertWriter}.
  *
  * @param mode            how the new document is combined with the stored one
  * @param ignoredFields   top-level fields excluded from change detection (e.g. {@code jobRunId}, {@code _updatedAt}).
@@ -14,14 +14,12 @@ import java.util.Set;
  *                        If anything else differs, they are written along with the real changes.
  * @param preservedFields top-level fields whose stored value is kept when the document already has one
  *                        (e.g. {@code _createdAt}). They don't need to be listed as ignored as well.
- * @param removeTypeKey   strip Spring Data's type key (usually {@code _class}) from the converted document
  * @param ordered         ordered or unordered bulk writes (unordered is faster and continues after a failed operation)
  */
 public record DiffsertOptions(
         Mode mode,
         Set<String> ignoredFields,
         Set<String> preservedFields,
-        boolean removeTypeKey,
         boolean ordered) {
 
     public enum Mode {
@@ -39,7 +37,7 @@ public record DiffsertOptions(
         preservedFields = validated(preservedFields, "preservedFields");
     }
 
-    /** REPLACE mode, no ignored or preserved fields, {@code _class} removed, unordered bulk writes. */
+    /** REPLACE mode, no ignored or preserved fields, unordered bulk writes. */
     public static DiffsertOptions defaults() {
         return builder().build();
     }
@@ -53,7 +51,6 @@ public record DiffsertOptions(
         b.mode = mode;
         b.ignoredFields.addAll(ignoredFields);
         b.preservedFields.addAll(preservedFields);
-        b.removeTypeKey = removeTypeKey;
         b.ordered = ordered;
         return b;
     }
@@ -75,7 +72,6 @@ public record DiffsertOptions(
         private Mode mode = Mode.REPLACE;
         private final Set<String> ignoredFields = new LinkedHashSet<>();
         private final Set<String> preservedFields = new LinkedHashSet<>();
-        private boolean removeTypeKey = true;
         private boolean ordered = false;
 
         private Builder() {
@@ -106,18 +102,13 @@ public record DiffsertOptions(
             return this;
         }
 
-        public Builder removeTypeKey(boolean removeTypeKey) {
-            this.removeTypeKey = removeTypeKey;
-            return this;
-        }
-
         public Builder ordered(boolean ordered) {
             this.ordered = ordered;
             return this;
         }
 
         public DiffsertOptions build() {
-            return new DiffsertOptions(mode, ignoredFields, preservedFields, removeTypeKey, ordered);
+            return new DiffsertOptions(mode, ignoredFields, preservedFields, ordered);
         }
     }
 }
