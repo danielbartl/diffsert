@@ -38,11 +38,11 @@ jobs:
 
       - name: Set version from tag
         run: |
-          mvn -v
-          mvn -B -ntp versions:set -DnewVersion="${GITHUB_REF_NAME#v}" -DgenerateBackupPoms=false -DprocessAllModules=true
+          ./mvnw -v
+          ./mvnw -B -ntp versions:set -DnewVersion="${GITHUB_REF_NAME#v}" -DgenerateBackupPoms=false -DprocessAllModules=true
 
       - name: Test, sign and publish to Maven Central
-        run: mvn -B -ntp -Prelease deploy
+        run: ./mvnw -B -ntp -Prelease deploy
         env:
           CENTRAL_USERNAME: ${{ secrets.CENTRAL_USERNAME }}
           CENTRAL_PASSWORD: ${{ secrets.CENTRAL_PASSWORD }}

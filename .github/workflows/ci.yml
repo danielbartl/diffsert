@@ -35,7 +35,7 @@ jobs:
           cache: maven
 
       - name: Build and run integration tests
-        run: mvn -B -ntp verify -Dmongo.image=mongo:${{ matrix.mongo }}
+        run: ./mvnw -B -ntp verify -Dmongo.image=mongo:${{ matrix.mongo }}
 
       - name: Upload test reports
         if: failure()

@@ -173,8 +173,8 @@ them, and `buildPipeline(...)` the pipeline for a single document.
 ## Building
 
 ```sh
-mvn verify                                  # needs Docker (Testcontainers)
-mvn verify -Dmongo.image=mongo:8.0          # against another server version
+./mvnw verify                               # needs Docker (Testcontainers)
+./mvnw verify -Dmongo.image=mongo:8.0       # against another server version
 ```
 
 ## License

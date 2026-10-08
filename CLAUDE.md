@@ -76,14 +76,19 @@ so downstream logic fired for every document even when nothing relevant changed.
   the repo stays on `-SNAPSHOT`), runs `mvn -Prelease deploy` (all tests, sources/javadoc jars, BouncyCastle GPG
   signing, `central-publishing-maven-plugin` with `autoPublish=true`, `waitUntil=published`), then creates a GitHub
   release. Published versions are permanent.
+- Build with the Maven Wrapper (`./mvnw`, Maven 3.9.16 with pinned SHA-256); CI and release use it too. Maven 3.10.0
+  breaks `central-publishing-maven-plugin` 0.11.0: it stages `maven-metadata-local.xml` and `_remote.repositories`
+  into the bundle, and Central rejects it ("Bundle has content that does NOT have a .pom file"). Only move to 3.10+
+  once a plugin release handles it, and check the bundle (dry run below) first.
 - Parent POM carries the Central metadata (url, MIT license, developer without email, scm); `diffsert-parent` is
   published too. `diffsert-test-support` is excluded via `excludeArtifacts`.
 - Repo secrets: `CENTRAL_USERNAME` / `CENTRAL_PASSWORD` (Central Portal user token for namespace `dev.jbaby`),
   `MAVEN_GPG_KEY` (armored secret key) / `MAVEN_GPG_PASSPHRASE`. Signing key: ed25519 `1EF738AE00E644CF`
   (Daniel Bartl <dev@danielbartl.com>), public key on keys.openpgp.org.
-- Dry run locally: `versions:set` in a scratch copy, then `mvn -Prelease deploy -DskipTests -DskipPublishing=true`
-  with a throwaway key and a settings.xml containing a dummy `central` server (`skipPublishing` skips the bundle,
-  so check the signed files in each `target/`). Verified 2026-10-08.
+- Dry run locally: `versions:set` in a scratch copy, then `./mvnw -Prelease deploy -DskipTests
+  -DcentralBaseUrl=http://127.0.0.1:9` with a throwaway key (MAVEN_GPG_KEY) and a settings.xml with a dummy
+  `central` server. The upload fails, but `target/central-publishing/central-bundle.zip` is built: it must contain
+  only `dev/jbaby/<artifact>/<version>/` entries. (`-DskipPublishing=true` skips the bundle entirely.)
 - After a release: switch README / `site/index.html` install snippets from `0.1.0-SNAPSHOT` to the release.
 
 ## Caveats (documented in README; verified on 5.0/7.0/9.0, pinned by DiffsertWriterIT)
