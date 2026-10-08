@@ -200,6 +200,74 @@ class DiffsertWriterIT {
         assertEquals(WriteOutcome.UPDATED, plain.upsert(collection, nextRun(a)));
     }
 
+    // The following tests pin down server behavior that the README documents as caveats.
+
+    @Test
+    void reportsArrayAndNestedChangesByPath() {
+        Document a = customer("c1", "Acme", "Berlin")
+                .append("tags", List.of("a", "b", "c", "d", "e", "f", "g", "h"))
+                .append("address", new Document("street", "Main").append("zip", "10115"));
+        writer.upsert(collection, a);
+        Document changed = with(with(a, "tags", List.of("a", "b", "X", "d", "e", "f", "g", "h")),
+                "address", new Document("street", "Side").append("zip", "10115"));
+
+        var events = eventsDuring(() -> writer.upsert(collection, changed));
+
+        assertEquals(1, events.size());
+        assertEquals(Set.of("tags.2", "address.street"), events.get(0).getUpdateDescription().getUpdatedFields().keySet());
+    }
+
+    @Test
+    void reportsShortenedArrayAsTruncated() {
+        Document a = customer("c1", "Acme", "Berlin").append("tags", List.of("a", "b", "c", "d", "e", "f", "g", "h"));
+        writer.upsert(collection, a);
+
+        var events = eventsDuring(() -> writer.upsert(collection, with(a, "tags", List.of("a", "b", "c"))));
+
+        assertEquals(1, events.size());
+        var truncated = events.get(0).getUpdateDescription().getTruncatedArrays();
+        assertEquals(1, truncated.size());
+        assertEquals("tags", truncated.get(0).getField());
+        assertEquals(3, truncated.get(0).getNewSize());
+    }
+
+    @Test
+    void smallDocumentChangeIsReportedAsReplace() {
+        // The server logs a full replacement when the delta would not be smaller than the document.
+        DiffsertWriter plain = new DiffsertWriter();
+        plain.upsert(collection, new Document("_id", "c1").append("a", "x"));
+
+        var events = eventsDuring(() -> assertEquals(WriteOutcome.UPDATED,
+                plain.upsert(collection, new Document("_id", "c1").append("a", "y"))));
+
+        assertEquals(1, events.size());
+        assertEquals(OperationType.REPLACE, events.get(0).getOperationType());
+    }
+
+    @Test
+    void numericTypeChangeAloneIsWrittenOnlyWithoutIgnoredOrPreservedFields() {
+        Document a = customer("c1", "Acme", "Berlin").append("count", 1);
+        writer.upsert(collection, a);
+
+        // With ignored/preserved fields, the comparison is $eq, which treats 1 and 1L as equal.
+        assertEquals(WriteOutcome.UNCHANGED, writer.upsert(collection, with(a, "count", 1L)));
+        assertEquals(Integer.class, stored("c1").get("count").getClass());
+
+        assertEquals(WriteOutcome.UPDATED, new DiffsertWriter().upsert(collection, with(a, "count", 1L)));
+        assertEquals(Long.class, stored("c1").get("count").getClass());
+    }
+
+    @Test
+    void differentFieldOrderCountsAsChange() {
+        Document a = customer("c1", "Acme", "Berlin");
+        writer.upsert(collection, a);
+        Document reordered = new Document("_id", "c1");
+        a.entrySet().stream().filter(e -> !e.getKey().equals("_id")).toList().reversed()
+                .forEach(e -> reordered.append(e.getKey(), e.getValue()));
+
+        assertEquals(WriteOutcome.UPDATED, writer.upsert(collection, reordered));
+    }
+
     @Test
     void writesDollarValuesLiterally() {
         Document a = customer("c1", "$name", "$$ROOT");

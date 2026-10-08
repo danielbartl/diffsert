@@ -62,20 +62,24 @@ so downstream logic fired for every document even when nothing relevant changed.
    In the module split, keep `Diffsert` as the Spring Data entry point and give the plain-driver core class its
    own name.
 4. ~~Split into modules~~ (done, see Current state).
-5. README with the problem, the mechanism, supported versions, usage, and caveats (below).
+5. ~~README~~ (done).
 6. Publishing (MIT license already in `LICENSE` and `pom.xml`): first move `TestMongo` from the core test-jar into
    an unpublished `diffsert-test-support` module (a test-jar breaks `-Dmaven.test.skip` and would be deployed); `central-publishing-maven-plugin`, sources/javadoc jars, GPG signing, release workflow.
 7. Later ideas: reactive variant, nested (dotted) ignored/preserved fields, optional change stream verification
    helper (sentinel-based event collection as in the IT).
 
-## Caveats to document for users
+## Caveats (documented in README; verified on 5.0/7.0/9.0, pinned by DiffsertWriterIT)
 
 - Requires MongoDB 5.0+ (`$unsetField`, delta oplog entries) and a replica set for change streams.
+- Small documents / near-total rewrites still produce `replace` events: the server logs a delta only when it is
+  smaller than the post-image (10 short string fields: 9 changed = `update`, 10 = `replace`).
 - Unchanged documents keep their old run metadata (e.g. `jobRunId`), so "not touched in this run" cannot be
   used to detect deletions; track seen ids separately.
-- Field order and BSON types must be stable between writes; otherwise the first write after a mapping change
-  rewrites the document. `$eq` treats numeric types by value (1 == 1L).
-- Changes inside arrays are reported as the whole array.
+- Field order and BSON types must be stable: reordering counts as a change. A numeric type change alone (1 -> 1L)
+  is written by the plain pipeline, but with ignored/preserved fields `$eq` treats it as equal and keeps the
+  stored type.
+- Arrays and nested documents are reported by path (`tags.2`, `address.street`); shortened arrays via
+  `truncatedArrays`. (An earlier note claiming "whole array" was wrong.)
 - Driver exceptions (e.g. `MongoBulkWriteException`) are thrown untranslated on purpose.
 
 ## Open decisions (ask the owner)
