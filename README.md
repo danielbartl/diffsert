@@ -1,6 +1,7 @@
 # Diffsert
 
 [![CI](https://github.com/danielbartl/diffsert/actions/workflows/ci.yml/badge.svg)](https://github.com/danielbartl/diffsert/actions/workflows/ci.yml)
+[![Maven Central](https://img.shields.io/maven-central/v/dev.jbaby/diffsert-spring-boot-starter)](https://central.sonatype.com/artifact/dev.jbaby/diffsert-spring-boot-starter)
 
 **Website:** https://danielbartl.github.io/diffsert/
 
