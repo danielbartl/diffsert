@@ -6,7 +6,7 @@ import java.util.List;
 import java.util.Set;
 
 /**
- * Immutable configuration for a {@link DeltaMongoWriter}.
+ * Immutable configuration for a {@link Diffsert}.
  *
  * @param mode            how the new document is combined with the stored one
  * @param ignoredFields   top-level fields excluded from change detection (e.g. {@code jobRunId}, {@code _updatedAt}).
@@ -17,7 +17,7 @@ import java.util.Set;
  * @param removeTypeKey   strip Spring Data's type key (usually {@code _class}) from the converted document
  * @param ordered         ordered or unordered bulk writes (unordered is faster and continues after a failed operation)
  */
-public record DeltaWriteOptions(
+public record DiffsertOptions(
         Mode mode,
         Set<String> ignoredFields,
         Set<String> preservedFields,
@@ -31,7 +31,7 @@ public record DeltaWriteOptions(
         MERGE
     }
 
-    public DeltaWriteOptions {
+    public DiffsertOptions {
         if (mode == null) {
             throw new IllegalArgumentException("mode must not be null");
         }
@@ -40,7 +40,7 @@ public record DeltaWriteOptions(
     }
 
     /** REPLACE mode, no ignored or preserved fields, {@code _class} removed, unordered bulk writes. */
-    public static DeltaWriteOptions defaults() {
+    public static DiffsertOptions defaults() {
         return builder().build();
     }
 
@@ -94,13 +94,13 @@ public record DeltaWriteOptions(
             return mode(Mode.MERGE);
         }
 
-        /** Fields that alone don't count as a change (see {@link DeltaWriteOptions#ignoredFields()}). */
+        /** Fields that alone don't count as a change (see {@link DiffsertOptions#ignoredFields()}). */
         public Builder ignoreForChangeDetection(String... fields) {
             ignoredFields.addAll(List.of(fields));
             return this;
         }
 
-        /** Fields whose stored value wins once set (see {@link DeltaWriteOptions#preservedFields()}). */
+        /** Fields whose stored value wins once set (see {@link DiffsertOptions#preservedFields()}). */
         public Builder preserveExistingValue(String... fields) {
             preservedFields.addAll(List.of(fields));
             return this;
@@ -116,8 +116,8 @@ public record DeltaWriteOptions(
             return this;
         }
 
-        public DeltaWriteOptions build() {
-            return new DeltaWriteOptions(mode, ignoredFields, preservedFields, removeTypeKey, ordered);
+        public DiffsertOptions build() {
+            return new DiffsertOptions(mode, ignoredFields, preservedFields, removeTypeKey, ordered);
         }
     }
 }

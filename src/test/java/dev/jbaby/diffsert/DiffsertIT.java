@@ -34,7 +34,7 @@ import com.mongodb.client.model.changestream.OperationType;
  * change events that each write produces.
  */
 @Testcontainers
-class DeltaMongoWriterIT {
+class DiffsertIT {
 
     /**
      * Server image, overridable with {@code -Dmongo.image=mongo:8.0.32} to test other versions. Testcontainers 2
@@ -48,7 +48,7 @@ class DeltaMongoWriterIT {
     static MongoTemplate template;
 
     MongoCollection<Document> collection;
-    DeltaMongoWriter writer;
+    Diffsert writer;
 
     @org.springframework.data.mongodb.core.mapping.Document("customers")
     record Customer(
@@ -95,7 +95,7 @@ class DeltaMongoWriterIT {
         template.dropCollection(Customer.class);
         template.createCollection(Customer.class);
         collection = template.getCollection("customers");
-        writer = new DeltaMongoWriter(template, DeltaWriteOptions.builder()
+        writer = new Diffsert(template, DiffsertOptions.builder()
                 .ignoreForChangeDetection("jobRunId", "_updatedAt")
                 .preserveExistingValue("_createdAt")
                 .build());
@@ -196,7 +196,7 @@ class DeltaMongoWriterIT {
     @Test
     void mergeModeKeepsFieldsWrittenByOthers() {
         collection.insertOne(new Document("_id", "c1").append("name", "Acme").append("foreign", 42));
-        DeltaMongoWriter merging = writer.withOptions(writer.options().toBuilder().merge().build());
+        Diffsert merging = writer.withOptions(writer.options().toBuilder().merge().build());
 
         merging.upsert(customer("c1", "Acme", "Berlin"));
 
@@ -206,7 +206,7 @@ class DeltaMongoWriterIT {
 
     @Test
     void writerWithoutOptionsBehavesLikePlainDeltaReplace() {
-        DeltaMongoWriter plain = new DeltaMongoWriter(template);
+        Diffsert plain = new Diffsert(template);
         Customer a = customer("c1", "Acme", "Berlin");
         plain.upsert(a);
 

@@ -1,6 +1,6 @@
 package dev.jbaby.diffsert;
 
-/** Result of writing a single document with {@link DeltaMongoWriter}. */
+/** Result of writing a single document with {@link Diffsert}. */
 public enum WriteOutcome {
     /** The document did not exist and was inserted (upsert only). */
     INSERTED,

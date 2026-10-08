@@ -8,15 +8,15 @@ Debezium and other CDC consumers see real changes instead of a full replace on e
 ## Usage
 
 ```java
-DeltaMongoWriter writer = new DeltaMongoWriter(mongoTemplate, DeltaWriteOptions.builder()
+Diffsert diffsert = new Diffsert(mongoTemplate, DiffsertOptions.builder()
         .ignoreForChangeDetection("jobRunId", "_updatedAt")   // alone, these are not a change
         .preserveExistingValue("_createdAt")                    // stored value wins once set
         .build());
 
-BatchWriteResult result = writer.upsertAll(dtos, CustomerDto.class);
+BatchWriteResult result = diffsert.upsertAll(dtos, CustomerDto.class);
 // requested=1000, inserted=3, updated=12, unchanged=985, notFound=0
 
-WriteOutcome outcome = writer.upsert(dto);   // INSERTED / UPDATED / UNCHANGED / NOT_FOUND
+WriteOutcome outcome = diffsert.upsert(dto);   // INSERTED / UPDATED / UNCHANGED / NOT_FOUND
 ```
 
 ### As Spring beans
@@ -26,8 +26,8 @@ WriteOutcome outcome = writer.upsert(dto);   // INSERTED / UPDATED / UNCHANGED /
 class DiffsertConfig {
 
     @Bean
-    DeltaMongoWriter replicationWriter(MongoTemplate mongoTemplate) {
-        return new DeltaMongoWriter(mongoTemplate, DeltaWriteOptions.builder()
+    Diffsert replicationDiffsert(MongoTemplate mongoTemplate) {
+        return new Diffsert(mongoTemplate, DiffsertOptions.builder()
                 .ignoreForChangeDetection("jobRunId", "_updatedAt")
                 .preserveExistingValue("_createdAt")
                 .build());

@@ -5,7 +5,7 @@ import java.util.List;
 import org.bson.BsonValue;
 
 /**
- * Result of a batch write with {@link DeltaMongoWriter}.
+ * Result of a batch write with {@link Diffsert}.
  *
  * @param requested   number of documents passed in
  * @param matched     documents that already existed

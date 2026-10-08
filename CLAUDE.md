@@ -26,13 +26,13 @@ so downstream logic fired for every document even when nothing relevant changed.
 - Entities are converted with Spring Data's `MongoConverter` (so `@Id`, `@Field`, custom converters apply);
   the type key (`_class`) is removed by default.
 
-`DeltaMongoWriter.buildPipeline` documents the exact pipeline in its Javadoc.
+`Diffsert.buildPipeline` documents the exact pipeline in its Javadoc.
 
 ## Current state
 
-- Single module, package `dev.jbaby.diffsert`: `DeltaMongoWriter`, `DeltaWriteOptions` (immutable record + builder),
+- Single module, package `dev.jbaby.diffsert`: `Diffsert`, `DiffsertOptions` (immutable record + builder),
   `WriteOutcome`, `BatchWriteResult`.
-- `DeltaMongoWriterIT` (Testcontainers, `mongo:7.0.15` single-node replica set) asserts the actual change stream
+- `DiffsertIT` (Testcontainers, `mongo:7.0.43` by default, single-node replica set) asserts the actual change stream
   events per scenario: insert, ignored-only no-op, changed fields only + preserved `_createdAt` + stable field order,
   removed fields, mixed batch, update never inserts, merge mode, no-options writer.
 - `mvn verify` passes (all 8 ITs) against MongoDB 7.0.15 with Spring Boot BOM 4.0.8 (Spring Data 2025.1.7,
@@ -49,8 +49,9 @@ so downstream logic fired for every document even when nothing relevant changed.
    tags `mongo:5.0` … `mongo:9.0` (via `-Dmongo.image`), on push to `main`, PRs and weekly. The delta-oplog behavior
    is a server implementation detail, not a documented guarantee, so the supported versions must be tested; add
    new server lines to the matrix as they appear.
-3. Naming pass: class names (`DeltaMongoWriter` etc.) still come from the original code; align with the
-   project name once it is final.
+3. ~~Naming pass~~ (done): project name Diffsert is final; entry point `Diffsert`, options `DiffsertOptions`.
+   In the module split, keep `Diffsert` as the Spring Data entry point and give the plain-driver core class its
+   own name.
 4. Split into modules: `diffsert-core` (plain driver, `Document` in/out, no Spring), `diffsert-spring-data`
    (MongoConverter-based entity conversion), `diffsert-spring-boot-starter` (auto-configuration, properties such as
    `diffsert.ignore-fields` / `diffsert.preserve-fields`, Micrometer counters for inserted/updated/unchanged).
@@ -71,6 +72,5 @@ so downstream logic fired for every document even when nothing relevant changed.
 
 ## Open decisions (ask the owner)
 
-- Final project name (candidates discussed: Diffsert, Hush, Stillwrite; avoid "MongoDelta", already taken).
 - Minimum Spring Data version (built against Spring Boot 4.0.x / Spring Data 2025.1). Java baseline is 25 (owner's
   choice; Spring Boot 4 itself only requires 17).

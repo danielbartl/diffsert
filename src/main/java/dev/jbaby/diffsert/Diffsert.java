@@ -31,8 +31,8 @@ import com.mongodb.client.result.UpdateResult;
  * the fields that really changed,</li>
  * <li>new documents (upsert) produce an {@code insert} event.</li>
  * </ul>
- * Fields configured via {@link DeltaWriteOptions#ignoredFields()} don't count as a change on their own, and fields
- * configured via {@link DeltaWriteOptions#preservedFields()} keep their stored value.
+ * Fields configured via {@link DiffsertOptions#ignoredFields()} don't count as a change on their own, and fields
+ * configured via {@link DiffsertOptions#preservedFields()} keep their stored value.
  * <p>
  * Entities are converted with Spring Data's {@link MongoConverter}, so {@code @Id}, {@code @Field} and custom
  * converters apply as with {@code save()}. Every entity must have an id.
@@ -42,16 +42,16 @@ import com.mongodb.client.result.UpdateResult;
  * <p>
  * Instances are immutable and thread-safe.
  */
-public class DeltaMongoWriter {
+public class Diffsert {
 
     private final MongoOperations mongo;
-    private final DeltaWriteOptions options;
+    private final DiffsertOptions options;
 
-    public DeltaMongoWriter(MongoOperations mongo) {
-        this(mongo, DeltaWriteOptions.defaults());
+    public Diffsert(MongoOperations mongo) {
+        this(mongo, DiffsertOptions.defaults());
     }
 
-    public DeltaMongoWriter(MongoOperations mongo, DeltaWriteOptions options) {
+    public Diffsert(MongoOperations mongo, DiffsertOptions options) {
         if (mongo == null || options == null) {
             throw new IllegalArgumentException("mongo and options must not be null");
         }
@@ -59,13 +59,13 @@ public class DeltaMongoWriter {
         this.options = options;
     }
 
-    public DeltaWriteOptions options() {
+    public DiffsertOptions options() {
         return options;
     }
 
     /** Returns a writer for the same database with different options. */
-    public DeltaMongoWriter withOptions(DeltaWriteOptions newOptions) {
-        return new DeltaMongoWriter(mongo, newOptions);
+    public Diffsert withOptions(DiffsertOptions newOptions) {
+        return new Diffsert(mongo, newOptions);
     }
 
     // ---------------------------------------------------------------- single document
@@ -166,7 +166,7 @@ public class DeltaMongoWriter {
      */
     public List<Document> buildPipeline(Document doc) {
         Object literal = new Document("$literal", doc);
-        Object incoming = options.mode() == DeltaWriteOptions.Mode.MERGE
+        Object incoming = options.mode() == DiffsertOptions.Mode.MERGE
                 ? new Document("$mergeObjects", List.of("$$ROOT", literal))
                 : literal;
 
