@@ -220,6 +220,22 @@ code, pre, kbd { font-family: var(--mono); }
   list-style: none;
 }
 .facts li::before { content: "▪ "; color: var(--hl); }
+.facts li.badge::before { content: none; }
+.central {
+  display: inline-flex;
+  align-items: stretch;
+  border: 1.5px solid var(--ink);
+  border-radius: 4px;
+  overflow: hidden;
+  text-decoration: none;
+  font-weight: 600;
+  line-height: 1;
+}
+.central span { padding: 0.3rem 0.5rem; }
+.central .label { background: var(--ink); color: var(--paper); }
+.central .ver { background: var(--hl); color: var(--hl-ink); font-variant-numeric: tabular-nums; }
+.central:hover { text-decoration: none; }
+.central:hover .label { background: var(--ink-2); }
 
 /* events card in the hero */
 .events { display: grid; gap: 0.9rem; min-width: 0; }
@@ -508,6 +524,7 @@ footer .links { display: flex; flex-wrap: wrap; gap: 1.25rem; }
           <a class="btn ghost" href="https://github.com/danielbartl/diffsert">View on GitHub</a>
         </div>
         <ul class="facts">
+          <li class="badge"><a class="central" href="https://central.sonatype.com/artifact/dev.jbaby/diffsert-spring-boot-starter" aria-label="Maven Central, latest version"><span class="label">Maven Central</span><span class="ver" id="central-version">v0.1.0</span></a></li>
           <li>MongoDB 5.0 – 9.0</li>
           <li>Spring Boot 4 starter</li>
           <li>Java 25</li>
@@ -892,6 +909,15 @@ BatchWriteResult result = writer.upsertAll(customers, documents);</code></pre>
     apply(next);
     try { localStorage.setItem("diffsert-theme", next); } catch (e) {}
   });
+
+  // ---------- Maven Central badge: latest version, with the built-in one as fallback ----------
+  var ver = document.getElementById("central-version");
+  if (window.fetch) {
+    fetch("https://img.shields.io/maven-central/v/dev.jbaby/diffsert-spring-boot-starter.json")
+      .then(function (r) { return r.ok ? r.json() : null; })
+      .then(function (d) { if (d && /^v\d+\.\d+\.\d+$/.test(d.value)) ver.textContent = d.value; })
+      .catch(function () {});
+  }
 
   // ---------- batch run waffles ----------
   var N = 1000;
