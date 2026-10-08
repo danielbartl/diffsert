@@ -8,7 +8,7 @@ Change-aware upserts for MongoDB and Spring Data MongoDB. Only fields that reall
 streams, Debezium and other CDC consumers see real changes instead of a full replace on every write. Unchanged
 documents cause no write and no event at all.
 
-> Status: early work in progress, not yet released to Maven Central.
+> Status: early release (0.x); the API may still change before 1.0.
 
 ## The problem
 
@@ -71,7 +71,7 @@ copied back from the stored document. The exact pipeline is documented in `Diffs
 | `diffsert-spring-data`         | Spring Data MongoDB without Boot auto-configuration (entities via `MongoConverter`) |
 | `diffsert-core`                | Plain MongoDB Java driver, `Document` in, no Spring                                  |
 
-Until the first release, build and install locally with `mvn install` and use version `0.1.0-SNAPSHOT`.
+All modules are on Maven Central under `dev.jbaby`, current version `0.1.0`.
 
 ## Usage
 
@@ -81,7 +81,7 @@ Until the first release, build and install locally with `mvn install` and use ve
 <dependency>
     <groupId>dev.jbaby</groupId>
     <artifactId>diffsert-spring-boot-starter</artifactId>
-    <version>0.1.0-SNAPSHOT</version>
+    <version>0.1.0</version>
 </dependency>
 ```
 

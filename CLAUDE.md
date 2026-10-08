@@ -89,7 +89,7 @@ so downstream logic fired for every document even when nothing relevant changed.
   -DcentralBaseUrl=http://127.0.0.1:9` with a throwaway key (MAVEN_GPG_KEY) and a settings.xml with a dummy
   `central` server. The upload fails, but `target/central-publishing/central-bundle.zip` is built: it must contain
   only `dev/jbaby/<artifact>/<version>/` entries. (`-DskipPublishing=true` skips the bundle entirely.)
-- After a release: switch README / `site/index.html` install snippets from `0.1.0-SNAPSHOT` to the release.
+- After a release: bump the install snippets in README and `site/index.html` to the new version.
 
 ## Caveats (documented in README; verified on 5.0/7.0/9.0, pinned by DiffsertWriterIT)
 
