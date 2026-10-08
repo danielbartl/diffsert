@@ -27,6 +27,8 @@ import com.mongodb.client.model.Indexes;
 import com.mongodb.client.model.changestream.ChangeStreamDocument;
 import com.mongodb.client.model.changestream.OperationType;
 
+import dev.jbaby.diffsert.testsupport.TestMongo;
+
 /**
  * Verifies the mechanism with plain driver documents against a real MongoDB (single-node replica set, so change
  * streams work) by looking at the change events that each write produces.

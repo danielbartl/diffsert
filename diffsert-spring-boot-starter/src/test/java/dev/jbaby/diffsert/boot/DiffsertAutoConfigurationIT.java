@@ -25,7 +25,7 @@ import io.micrometer.core.instrument.MeterRegistry;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 
 import dev.jbaby.diffsert.DiffsertListener;
-import dev.jbaby.diffsert.TestMongo;
+import dev.jbaby.diffsert.testsupport.TestMongo;
 import dev.jbaby.diffsert.WriteOutcome;
 import dev.jbaby.diffsert.spring.Diffsert;
 

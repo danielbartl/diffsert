@@ -27,8 +27,7 @@
 
         <dependency>
             <groupId>dev.jbaby</groupId>
-            <artifactId>diffsert-core</artifactId>
-            <type>test-jar</type>
+            <artifactId>diffsert-test-support</artifactId>
             <scope>test</scope>
         </dependency>
         <dependency>

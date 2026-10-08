@@ -1,4 +1,4 @@
-package dev.jbaby.diffsert;
+package dev.jbaby.diffsert.testsupport;
 
 import java.time.Duration;
 import java.util.ArrayList;
@@ -12,7 +12,7 @@ import org.testcontainers.mongodb.MongoDBContainer;
 import com.mongodb.client.MongoCollection;
 import com.mongodb.client.model.changestream.ChangeStreamDocument;
 
-/** Container setup and change event collection shared by the integration tests of all modules (test-jar). */
+/** Container setup and change event collection shared by the integration tests of all modules. */
 public final class TestMongo {
 
     private TestMongo() {

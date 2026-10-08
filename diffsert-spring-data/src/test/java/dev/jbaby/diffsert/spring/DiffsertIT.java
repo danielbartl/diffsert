@@ -30,7 +30,7 @@ import com.mongodb.client.model.changestream.OperationType;
 
 import dev.jbaby.diffsert.BatchWriteResult;
 import dev.jbaby.diffsert.DiffsertOptions;
-import dev.jbaby.diffsert.TestMongo;
+import dev.jbaby.diffsert.testsupport.TestMongo;
 import dev.jbaby.diffsert.WriteOutcome;
 
 /**

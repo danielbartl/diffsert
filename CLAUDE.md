@@ -45,7 +45,8 @@ so downstream logic fired for every document even when nothing relevant changed.
   events per scenario: insert, ignored-only no-op, changed fields only + preserved `_createdAt` + stable field order,
   removed fields, mixed batch, update never inserts, merge mode, no-options writer, plus listener reporting.
   Starter: `DiffsertAutoConfigurationTest` (context runner, no server) and `DiffsertAutoConfigurationIT`.
-  `TestMongo` (core test-jar) holds the container setup and the sentinel-based `eventsDuring` helper.
+  `TestMongo` (module `diffsert-test-support`, package `dev.jbaby.diffsert.testsupport`, never published) holds
+  the container setup and the sentinel-based `eventsDuring` helper.
 - The IT image is set by `-Dmongo.image=mongo:<tag>` (default `mongo:7.0.43`). Testcontainers 2's `MongoDBContainer`
   needs `.withReplicaSet()` for change streams. The ITs passed on 5.0.33, 6.0.28, 7.0.43, 8.0.32, 8.2.12, 8.3.11
   and 9.0.2 (2026-10-08).
@@ -65,10 +66,25 @@ so downstream logic fired for every document even when nothing relevant changed.
    own name.
 4. ~~Split into modules~~ (done, see Current state).
 5. ~~README~~ (done).
-6. Publishing (MIT license already in `LICENSE` and `pom.xml`): first move `TestMongo` from the core test-jar into
-   an unpublished `diffsert-test-support` module (a test-jar breaks `-Dmaven.test.skip` and would be deployed); `central-publishing-maven-plugin`, sources/javadoc jars, GPG signing, release workflow.
+6. ~~Publishing setup~~ (done; first release pending, see Releasing below).
 7. Later ideas: reactive variant, nested (dotted) ignored/preserved fields, optional change stream verification
    helper (sentinel-based event collection as in the IT).
+
+## Releasing
+
+- Push a tag `vX.Y.Z` on `main`. `.github/workflows/release.yml` sets the version from the tag (`versions:set`,
+  the repo stays on `-SNAPSHOT`), runs `mvn -Prelease deploy` (all tests, sources/javadoc jars, BouncyCastle GPG
+  signing, `central-publishing-maven-plugin` with `autoPublish=true`, `waitUntil=published`), then creates a GitHub
+  release. Published versions are permanent.
+- Parent POM carries the Central metadata (url, MIT license, developer without email, scm); `diffsert-parent` is
+  published too. `diffsert-test-support` is excluded via `excludeArtifacts`.
+- Repo secrets: `CENTRAL_USERNAME` / `CENTRAL_PASSWORD` (Central Portal user token for namespace `dev.jbaby`),
+  `MAVEN_GPG_KEY` (armored secret key) / `MAVEN_GPG_PASSPHRASE`. Signing key: ed25519 `1EF738AE00E644CF`
+  (Daniel Bartl <dev@danielbartl.com>), public key on keys.openpgp.org.
+- Dry run locally: `versions:set` in a scratch copy, then `mvn -Prelease deploy -DskipTests -DskipPublishing=true`
+  with a throwaway key and a settings.xml containing a dummy `central` server (`skipPublishing` skips the bundle,
+  so check the signed files in each `target/`). Verified 2026-10-08.
+- After a release: switch README / `site/index.html` install snippets from `0.1.0-SNAPSHOT` to the release.
 
 ## Caveats (documented in README; verified on 5.0/7.0/9.0, pinned by DiffsertWriterIT)
 

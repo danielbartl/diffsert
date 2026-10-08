@@ -1,7 +1,8 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <project xmlns="http://maven.apache.org/POM/4.0.0"
          xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
-         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 https://maven.apache.org/xsd/maven-4.0.0.xsd">
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 https://maven.apache.org/xsd/maven-4.0.0.xsd"
+         child.project.url.inherit.append.path="false">
     <modelVersion>4.0.0</modelVersion>
 
     <groupId>dev.jbaby</groupId>
@@ -12,6 +13,8 @@
     <name>Diffsert Parent</name>
     <description>Change-aware upserts for MongoDB: only fields that really changed reach the oplog and change streams.</description>
 
+    <url>https://danielbartl.github.io/diffsert/</url>
+
     <licenses>
         <license>
             <name>MIT License</name>
@@ -20,7 +23,29 @@
         </license>
     </licenses>
 
+    <developers>
+        <developer>
+            <id>danielbartl</id>
+            <name>Daniel Bartl</name>
+            <url>https://github.com/danielbartl</url>
+        </developer>
+    </developers>
+
+    <scm child.scm.connection.inherit.append.path="false"
+         child.scm.developerConnection.inherit.append.path="false"
+         child.scm.url.inherit.append.path="false">
+        <connection>scm:git:https://github.com/danielbartl/diffsert.git</connection>
+        <developerConnection>scm:git:git@github.com:danielbartl/diffsert.git</developerConnection>
+        <url>https://github.com/danielbartl/diffsert</url>
+    </scm>
+
+    <issueManagement>
+        <system>GitHub</system>
+        <url>https://github.com/danielbartl/diffsert/issues</url>
+    </issueManagement>
+
     <modules>
+        <module>diffsert-test-support</module>
         <module>diffsert-core</module>
         <module>diffsert-spring-data</module>
         <module>diffsert-spring-boot-starter</module>
@@ -42,9 +67,8 @@
             </dependency>
             <dependency>
                 <groupId>dev.jbaby</groupId>
-                <artifactId>diffsert-core</artifactId>
+                <artifactId>diffsert-test-support</artifactId>
                 <version>${project.version}</version>
-                <type>test-jar</type>
             </dependency>
             <dependency>
                 <groupId>dev.jbaby</groupId>
@@ -86,6 +110,31 @@
                     <artifactId>maven-jar-plugin</artifactId>
                     <version>3.5.1</version>
                 </plugin>
+                <plugin>
+                    <groupId>org.apache.maven.plugins</groupId>
+                    <artifactId>maven-install-plugin</artifactId>
+                    <version>3.2.0</version>
+                </plugin>
+                <plugin>
+                    <groupId>org.apache.maven.plugins</groupId>
+                    <artifactId>maven-source-plugin</artifactId>
+                    <version>3.4.0</version>
+                </plugin>
+                <plugin>
+                    <groupId>org.apache.maven.plugins</groupId>
+                    <artifactId>maven-javadoc-plugin</artifactId>
+                    <version>3.12.0</version>
+                </plugin>
+                <plugin>
+                    <groupId>org.apache.maven.plugins</groupId>
+                    <artifactId>maven-gpg-plugin</artifactId>
+                    <version>3.2.8</version>
+                </plugin>
+                <plugin>
+                    <groupId>org.codehaus.mojo</groupId>
+                    <artifactId>versions-maven-plugin</artifactId>
+                    <version>2.22.0</version>
+                </plugin>
             </plugins>
         </pluginManagement>
         <plugins>
@@ -104,4 +153,78 @@
             </plugin>
         </plugins>
     </build>
+
+    <profiles>
+        <!--
+            mvn -Prelease deploy: sources and javadoc jars, GPG signatures, upload to Maven Central (published
+            automatically once validated). Signing uses the BouncyCastle signer with the key in MAVEN_GPG_KEY and
+            MAVEN_GPG_PASSPHRASE; the Central Portal token comes from the "central" server in settings.xml.
+            See .github/workflows/release.yml.
+        -->
+        <profile>
+            <id>release</id>
+            <build>
+                <plugins>
+                    <plugin>
+                        <groupId>org.apache.maven.plugins</groupId>
+                        <artifactId>maven-source-plugin</artifactId>
+                        <executions>
+                            <execution>
+                                <id>attach-sources</id>
+                                <goals>
+                                    <goal>jar-no-fork</goal>
+                                </goals>
+                            </execution>
+                        </executions>
+                    </plugin>
+                    <plugin>
+                        <groupId>org.apache.maven.plugins</groupId>
+                        <artifactId>maven-javadoc-plugin</artifactId>
+                        <configuration>
+                            <!-- Report broken references and HTML, not every member without a comment. -->
+                            <doclint>all,-missing</doclint>
+                        </configuration>
+                        <executions>
+                            <execution>
+                                <id>attach-javadocs</id>
+                                <goals>
+                                    <goal>jar</goal>
+                                </goals>
+                            </execution>
+                        </executions>
+                    </plugin>
+                    <plugin>
+                        <groupId>org.apache.maven.plugins</groupId>
+                        <artifactId>maven-gpg-plugin</artifactId>
+                        <executions>
+                            <execution>
+                                <id>sign-artifacts</id>
+                                <goals>
+                                    <goal>sign</goal>
+                                </goals>
+                                <configuration>
+                                    <signer>bc</signer>
+                                </configuration>
+                            </execution>
+                        </executions>
+                    </plugin>
+                    <plugin>
+                        <groupId>org.sonatype.central</groupId>
+                        <artifactId>central-publishing-maven-plugin</artifactId>
+                        <version>0.11.0</version>
+                        <extensions>true</extensions>
+                        <configuration>
+                            <publishingServerId>central</publishingServerId>
+                            <autoPublish>true</autoPublish>
+                            <waitUntil>published</waitUntil>
+                            <deploymentName>Diffsert ${project.version}</deploymentName>
+                            <excludeArtifacts>
+                                <artifact>diffsert-test-support</artifact>
+                            </excludeArtifacts>
+                        </configuration>
+                    </plugin>
+                </plugins>
+            </build>
+        </profile>
+    </profiles>
 </project>
