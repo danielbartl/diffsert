@@ -30,7 +30,7 @@ so downstream logic fired for every document even when nothing relevant changed.
 
 ## Current state
 
-- Multi-module build, parent `diffsert-parent` (Spring Boot BOM 4.0.8 imported, plugin versions pinned, Java 25):
+- Multi-module build, parent `diffsert-parent` (Spring Boot BOM 4.0.8 imported, plugin versions pinned, Java 21 minimum):
   - `diffsert-core`, package `dev.jbaby.diffsert`, only `mongodb-driver-sync`: `DiffsertWriter` (pipeline + writes,
     takes a `MongoCollection<Document>` per call), `DiffsertOptions` (immutable record + builder: mode, ignored,
     preserved, ordered), `WriteOutcome`, `BatchWriteResult`, `DiffsertListener` (called after every write).
@@ -57,7 +57,7 @@ so downstream logic fired for every document even when nothing relevant changed.
 ## Next steps (in order)
 
 1. ~~Build and run `mvn verify`~~ (done).
-2. ~~CI~~ (done): `.github/workflows/ci.yml` runs `mvn verify` as a matrix over floating
+2. ~~CI~~ (done): `.github/workflows/ci.yml` runs `mvn verify` as a matrix over Java 21 and 25 and floating
    tags `mongo:5.0` … `mongo:9.0` (via `-Dmongo.image`), on push to `main`, PRs and weekly. The delta-oplog behavior
    is a server implementation detail, not a documented guarantee, so the supported versions must be tested; add
    new server lines to the matrix as they appear.
@@ -76,7 +76,8 @@ so downstream logic fired for every document even when nothing relevant changed.
   the repo stays on `-SNAPSHOT`), runs `mvn -Prelease deploy` (all tests, sources/javadoc jars, BouncyCastle GPG
   signing, `central-publishing-maven-plugin` with `autoPublish=true`, `waitUntil=published`), then creates a GitHub
   release. Published versions are permanent.
-- Build with the Maven Wrapper (`./mvnw`, Maven 3.9.16 with pinned SHA-256); CI and release use it too. Maven 3.10.0
+- Build with Java 21+ and the Maven Wrapper (`./mvnw`, Maven 3.9.16 with pinned SHA-256); release builds use Java 21.
+  CI tests Java 21 and 25. Maven 3.10.0
   breaks `central-publishing-maven-plugin` 0.11.0: it stages `maven-metadata-local.xml` and `_remote.repositories`
   into the bundle, and Central rejects it ("Bundle has content that does NOT have a .pom file"). Only move to 3.10+
   once a plugin release handles it, and check the bundle (dry run below) first.
@@ -107,5 +108,4 @@ so downstream logic fired for every document even when nothing relevant changed.
 
 ## Open decisions (ask the owner)
 
-- Minimum Spring Data version (built against Spring Boot 4.0.x / Spring Data 2025.1). Java baseline is 25 (owner's
-  choice; Spring Boot 4 itself only requires 17).
+- Minimum Spring Data version (built against Spring Boot 4.0.x / Spring Data 2025.1).

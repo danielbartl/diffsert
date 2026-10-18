@@ -52,7 +52,7 @@
     </modules>
 
     <properties>
-        <maven.compiler.release>25</maven.compiler.release>
+        <maven.compiler.release>21</maven.compiler.release>
         <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
         <!-- Oldest supported Boot line; compiling against it keeps the library compatible with newer ones. -->
         <spring-boot.version>4.0.8</spring-boot.version>

@@ -19,11 +19,12 @@ concurrency:
 
 jobs:
   verify:
-    name: MongoDB ${{ matrix.mongo }}
+    name: Java ${{ matrix.java }} / MongoDB ${{ matrix.mongo }}
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
       matrix:
+        java: ["21", "25"]
         mongo: ["5.0", "6.0", "7.0", "8.0", "8.2", "8.3", "9.0"]
     steps:
       - uses: actions/checkout@v7
@@ -31,7 +32,7 @@ jobs:
       - uses: actions/setup-java@v6
         with:
           distribution: temurin
-          java-version: "25"
+          java-version: ${{ matrix.java }}
           cache: maven
 
       - name: Build and run integration tests
@@ -41,7 +42,7 @@ jobs:
         if: failure()
         uses: actions/upload-artifact@v7
         with:
-          name: test-reports-mongo-${{ matrix.mongo }}
+          name: test-reports-java-${{ matrix.java }}-mongo-${{ matrix.mongo }}
           path: |
             */target/surefire-reports/
             */target/failsafe-reports/

@@ -57,7 +57,7 @@ copied back from the stored document. The exact pipeline is documented in `Diffs
 
 ## Requirements and supported versions
 
-- Java 25.
+- Java 21 or later. CI tests on Java 21 and 25.
 - MongoDB 5.0 or later. Change streams (and therefore Debezium) require a replica set; the writes themselves also
   work on a standalone server.
 - The delta oplog behavior Diffsert relies on is a server implementation detail, not a documented guarantee. CI runs
