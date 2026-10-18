@@ -72,7 +72,7 @@ copied back from the stored document. The exact pipeline is documented in `Diffs
 | `diffsert-spring-data`         | Spring Data MongoDB without Boot auto-configuration (entities via `MongoConverter`) |
 | `diffsert-core`                | Plain MongoDB Java driver, `Document` in, no Spring                                  |
 
-All modules are on Maven Central under `dev.jbaby`, current version `0.1.0`.
+All modules are on Maven Central under `dev.jbaby`, current version `0.1.1`.
 
 ## Usage
 
@@ -82,7 +82,7 @@ All modules are on Maven Central under `dev.jbaby`, current version `0.1.0`.
 <dependency>
     <groupId>dev.jbaby</groupId>
     <artifactId>diffsert-spring-boot-starter</artifactId>
-    <version>0.1.0</version>
+    <version>0.1.1</version>
 </dependency>
 ```
 

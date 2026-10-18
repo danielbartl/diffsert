@@ -66,7 +66,7 @@ so downstream logic fired for every document even when nothing relevant changed.
    own name.
 4. ~~Split into modules~~ (done, see Current state).
 5. ~~README~~ (done).
-6. ~~Publishing setup~~ (done; first release pending, see Releasing below).
+6. ~~Publishing setup~~ (done; 0.1.1 published with Java 21 support, see Releasing below).
 7. Later ideas: reactive variant, nested (dotted) ignored/preserved fields, optional change stream verification
    helper (sentinel-based event collection as in the IT).
 
