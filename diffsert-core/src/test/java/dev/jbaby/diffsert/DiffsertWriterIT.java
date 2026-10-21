@@ -69,6 +69,14 @@ class DiffsertWriterIT {
         return new Document(doc).append(field, value);
     }
 
+    /** Same fields and values, all but {@code _id} in reverse order. */
+    static Document withFieldsReversed(Document doc) {
+        Document reversed = new Document("_id", doc.get("_id"));
+        doc.entrySet().stream().filter(e -> !e.getKey().equals("_id")).toList().reversed()
+                .forEach(e -> reversed.append(e.getKey(), e.getValue()));
+        return reversed;
+    }
+
     @BeforeAll
     static void connect() {
         client = MongoClients.create(MONGO.getReplicaSetUrl("test"));
@@ -355,11 +363,25 @@ class DiffsertWriterIT {
     void differentFieldOrderCountsAsChange() {
         Document a = customer("c1", "Acme", "Berlin");
         writer.upsert(collection, a);
-        Document reordered = new Document("_id", "c1");
-        a.entrySet().stream().filter(e -> !e.getKey().equals("_id")).toList().reversed()
-                .forEach(e -> reordered.append(e.getKey(), e.getValue()));
 
-        assertEquals(WriteOutcome.UPDATED, writer.upsert(collection, reordered));
+        assertEquals(WriteOutcome.UPDATED, writer.upsert(collection, withFieldsReversed(a)));
+    }
+
+    @Test
+    void mergeModeKeepsStoredFieldOrder() {
+        // $mergeObjects keeps the position of fields that $$ROOT already has
+        Document a = customer("c1", "Acme", "Berlin");
+        writer.upsert(collection, a);
+        DiffsertWriter merging = writer.withOptions(writer.options().toBuilder().merge().build());
+        DiffsertWriter plainMerging = new DiffsertWriter(DiffsertOptions.builder().merge().build());
+
+        var events = eventsDuring(() -> {
+            assertEquals(WriteOutcome.UNCHANGED, merging.upsert(collection, withFieldsReversed(a)));
+            assertEquals(WriteOutcome.UNCHANGED, plainMerging.upsert(collection, withFieldsReversed(a)));
+        });
+
+        assertEquals(List.of(), events);
+        assertEquals(List.copyOf(a.keySet()), List.copyOf(stored("c1").keySet()));
     }
 
     @Test
