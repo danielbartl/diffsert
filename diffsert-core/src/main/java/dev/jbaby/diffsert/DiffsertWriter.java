@@ -1,6 +1,7 @@
 package dev.jbaby.diffsert;
 
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.Collection;
 import java.util.List;
 
@@ -30,7 +31,8 @@ import com.mongodb.client.result.UpdateResult;
  * <li>new documents (upsert) produce an {@code insert} event.</li>
  * </ul>
  * Fields configured via {@link DiffsertOptions#ignoredFields()} don't count as a change on their own, and fields
- * configured via {@link DiffsertOptions#preservedFields()} keep their stored value.
+ * configured via {@link DiffsertOptions#preservedFields()} keep their stored value. A
+ * {@link DiffsertOptions#versionField()} is incremented with every real change.
  * <p>
  * Works with plain driver {@link Document}s; every document must have an {@code _id}. The collection is passed per
  * call, so its codec registry, write concern etc. apply as configured by the caller.
@@ -115,20 +117,26 @@ public final class DiffsertWriter {
     }
 
     /**
-     * The update pipeline for one document. Without ignored/preserved fields it is simply
+     * The update pipeline for one document. Without ignored, preserved or version fields it is simply
      * <pre>{@code [{ $replaceWith: { $literal: <doc> } }]}</pre>
      * With them, it computes the result first and keeps the stored document unless something outside the ignored
-     * fields differs:
+     * fields and the version field differs:
      * <pre>{@code
      * [{ $replaceWith: { $let: {
      *     vars: { incoming: <doc, or $$ROOT merged with doc> },
      *     in: { $let: {
      *       vars: { result: <incoming with stored values of preserved fields> },
      *       in: { $cond: {
-     *         if:   <document existed> and <$$ROOT minus ignored fields == result minus ignored fields>,
+     *         if:   <document existed> and <$$ROOT == result, both without ignored fields and the version field>,
      *         then: "$$ROOT",
-     *         else: "$$result" } } } } } } }]
+     *         else: <result, with the version field set to the stored value + 1 or the initial version> } } } } } } }]
      * }</pre>
+     * The version field is set with
+     * <pre>{@code
+     * { $cond: [ { $eq: [ { $ifNull: [ "$version", null ] }, null ] }, <initial>, { $add: [ "$version", 1 ] } ] }
+     * }</pre>
+     * so it keeps its position in the incoming document (or is appended), and a stored non-numeric value fails the
+     * write.
      * {@code $literal} makes sure values starting with {@code $} are never interpreted as expressions.
      */
     public List<Document> buildPipeline(Document doc) {
@@ -137,7 +145,8 @@ public final class DiffsertWriter {
                 ? new Document("$mergeObjects", List.of("$$ROOT", literal))
                 : literal;
 
-        if (options.ignoredFields().isEmpty() && options.preservedFields().isEmpty()) {
+        if (options.ignoredFields().isEmpty() && options.preservedFields().isEmpty()
+                && options.versionField() == null) {
             return List.of(new Document("$replaceWith", incoming));
         }
 
@@ -155,13 +164,13 @@ public final class DiffsertWriter {
         // only differs in ignored fields.
         Object documentExisted = new Document("$ne", List.of("$$ROOT", new Document("_id", "$_id")));
         Object nothingRelevantChanged = new Document("$eq", List.of(
-                withoutIgnoredFields("$$ROOT"),
-                withoutIgnoredFields("$$result")));
+                withoutUncomparedFields("$$ROOT"),
+                withoutUncomparedFields("$$result")));
 
         Object keepOrReplace = new Document("$cond", new Document()
                 .append("if", new Document("$and", List.of(documentExisted, nothingRelevantChanged)))
                 .append("then", "$$ROOT")
-                .append("else", "$$result"));
+                .append("else", withNextVersion("$$result")));
 
         Object expression = new Document("$let", new Document()
                 .append("vars", new Document("incoming", incoming))
@@ -174,12 +183,30 @@ public final class DiffsertWriter {
 
     // ---------------------------------------------------------------- internals
 
-    private Object withoutIgnoredFields(Object input) {
+    /** {@code input} without the ignored fields and the version field. */
+    private Object withoutUncomparedFields(Object input) {
         Object expr = input;
         for (String field : options.ignoredFields()) {
             expr = new Document("$unsetField", new Document("field", field).append("input", expr));
         }
+        if (options.versionField() != null) {
+            expr = new Document("$unsetField", new Document("field", options.versionField()).append("input", expr));
+        }
         return expr;
+    }
+
+    /** {@code result} with the version field set to the stored value + 1, or the initial version. */
+    private Object withNextVersion(Object result) {
+        String field = options.versionField();
+        if (field == null) {
+            return result;
+        }
+        Object storedVersion = "$" + field;
+        Object nextVersion = new Document("$cond", List.of(
+                new Document("$eq", Arrays.asList(new Document("$ifNull", Arrays.asList(storedVersion, null)), null)),
+                options.initialVersion(),
+                new Document("$add", List.of(storedVersion, 1))));
+        return new Document("$mergeObjects", List.of(result, new Document(field, nextVersion)));
     }
 
     private static Object idOf(Document doc) {

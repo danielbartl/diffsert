@@ -93,6 +93,7 @@ class DiffsertAutoConfigurationTest {
                         "diffsert.ignore-fields=jobRunId,_updatedAt",
                         "diffsert.preserve-fields=_createdAt",
                         "diffsert.ordered=true",
+                        "diffsert.version-field=version",
                         "diffsert.remove-type-key=false")
                 .run(context -> {
                     Diffsert diffsert = context.getBean(Diffsert.class);
@@ -101,6 +102,7 @@ class DiffsertAutoConfigurationTest {
                     assertThat(options.ignoredFields()).containsExactly("jobRunId", "_updatedAt");
                     assertThat(options.preservedFields()).isEqualTo(Set.of("_createdAt"));
                     assertThat(options.ordered()).isTrue();
+                    assertThat(options.versionField()).isEqualTo("version");
                     assertThat(diffsert.removesTypeKey()).isFalse();
                 });
     }

@@ -26,6 +26,12 @@ public class DiffsertProperties {
     /** Whether bulk writes are ordered (stop at the first failure) or unordered (faster, continue). */
     private boolean ordered = false;
 
+    /**
+     * Top-level field (e.g. version) that is incremented with every real change, starting at 0. Entities get the
+     * field of their @Version property without this.
+     */
+    private String versionField;
+
     /** Whether Spring Data's type key (usually _class) is removed from converted entities. */
     private boolean removeTypeKey = true;
 
@@ -35,6 +41,7 @@ public class DiffsertProperties {
                 .ignoreForChangeDetection(ignoreFields.toArray(String[]::new))
                 .preserveExistingValue(preserveFields.toArray(String[]::new))
                 .ordered(ordered)
+                .versionField(versionField)
                 .build();
     }
 
@@ -68,6 +75,14 @@ public class DiffsertProperties {
 
     public void setOrdered(boolean ordered) {
         this.ordered = ordered;
+    }
+
+    public String getVersionField() {
+        return versionField;
+    }
+
+    public void setVersionField(String versionField) {
+        this.versionField = versionField;
     }
 
     public boolean isRemoveTypeKey() {

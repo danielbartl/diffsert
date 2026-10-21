@@ -1,6 +1,7 @@
 package dev.jbaby.diffsert;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 
 import java.util.ArrayList;
@@ -19,6 +20,7 @@ import org.testcontainers.junit.jupiter.Testcontainers;
 import org.testcontainers.mongodb.MongoDBContainer;
 
 import com.mongodb.MongoBulkWriteException;
+import com.mongodb.MongoWriteException;
 import com.mongodb.client.MongoClient;
 import com.mongodb.client.MongoClients;
 import com.mongodb.client.MongoCollection;
@@ -202,6 +204,96 @@ class DiffsertWriterIT {
         assertEquals(WriteOutcome.UPDATED, plain.upsert(collection, nextRun(a)));
     }
 
+    @Test
+    void versionStartsAtInitialValueAndMovesOnlyWithRealChanges() {
+        DiffsertWriter versioned = versioned(writer);
+        Document a = customer("c1", "Acme", "Berlin");
+
+        assertEquals(WriteOutcome.INSERTED, versioned.upsert(collection, a));
+        assertEquals(0L, stored("c1").get("version"));
+        assertEquals(WriteOutcome.UNCHANGED, versioned.upsert(collection, nextRun(a)));
+        assertEquals(0L, stored("c1").get("version"));
+
+        var events = eventsDuring(() ->
+                assertEquals(WriteOutcome.UPDATED, versioned.upsert(collection, with(nextRun(a), "city", "Hamburg"))));
+
+        assertEquals(1, events.size());
+        assertEquals(Set.of("city", "jobRunId", "_updatedAt", "version"),
+                events.get(0).getUpdateDescription().getUpdatedFields().keySet());
+        assertEquals(1L, stored("c1").get("version"));
+    }
+
+    @Test
+    void versionIgnoresIncomingValueButKeepsItsPosition() {
+        DiffsertWriter versioned = versioned(writer);
+        Document a = new Document("_id", "c1").append("version", 7L);
+        a.putAll(customer("c1", "Acme", "Berlin"));
+
+        versioned.upsert(collection, a);
+        assertEquals(0L, stored("c1").get("version"));
+        assertEquals(WriteOutcome.UNCHANGED, versioned.upsert(collection, with(a, "version", 42L)));
+        assertEquals(WriteOutcome.UPDATED,
+                versioned.upsert(collection, with(with(a, "version", 42L), "city", "Hamburg")));
+
+        assertEquals(1L, stored("c1").get("version"));
+        assertEquals(List.copyOf(a.keySet()), List.copyOf(stored("c1").keySet()), "field order must stay stable");
+    }
+
+    @Test
+    void versionCountsOnFromStoredValueAndKeepsItsType() {
+        // e.g. written with save() by an application whose entity has an int version
+        Document a = new Document("_id", "c1").append("version", 5);
+        a.putAll(customer("c1", "Acme", "Berlin"));
+        collection.insertOne(a);
+
+        assertEquals(WriteOutcome.UPDATED, versioned(writer).upsert(collection, with(a, "city", "Hamburg")));
+
+        assertEquals(6, stored("c1").get("version"));
+    }
+
+    @Test
+    void versionStartsAtInitialValueWhenStoredDocumentHasNone() {
+        Document a = customer("c1", "Acme", "Berlin");
+        collection.insertOne(a);
+        DiffsertWriter versioned = versioned(writer);
+
+        assertEquals(WriteOutcome.UNCHANGED, versioned.upsert(collection, a));
+        assertFalse(stored("c1").containsKey("version"));
+        assertEquals(WriteOutcome.UPDATED, versioned.upsert(collection, with(a, "city", "Hamburg")));
+        assertEquals(0L, stored("c1").get("version"));
+    }
+
+    @Test
+    void versionFieldWorksWithoutOtherOptions() {
+        // starting at Integer 1, as Spring Data does for a primitive int version
+        DiffsertWriter versioned = new DiffsertWriter(DiffsertOptions.builder().versionField("version", 1).build());
+        Document a = customer("c1", "Acme", "Berlin");
+
+        versioned.upsert(collection, a);
+        assertEquals(1, stored("c1").get("version"));
+        assertEquals(WriteOutcome.UNCHANGED, versioned.upsert(collection, a));
+        assertEquals(WriteOutcome.UPDATED, versioned.upsert(collection, with(a, "city", "Hamburg")));
+        assertEquals(2, stored("c1").get("version"));
+    }
+
+    @Test
+    void versionFieldFailsWriteOnNonNumericStoredValue() {
+        collection.insertOne(customer("c1", "Acme", "Berlin").append("version", "v1"));
+
+        assertThrows(MongoWriteException.class,
+                () -> versioned(writer).upsert(collection, customer("c1", "Acme", "Hamburg")));
+    }
+
+    @Test
+    void rejectsInvalidVersionField() {
+        var ignoringRunId = DiffsertOptions.builder().ignoreForChangeDetection("jobRunId");
+        assertThrows(IllegalArgumentException.class, () -> ignoringRunId.versionField("jobRunId").build());
+        assertThrows(IllegalArgumentException.class, () -> DiffsertOptions.builder().versionField("_id").build());
+        assertThrows(IllegalArgumentException.class, () -> DiffsertOptions.builder().versionField("meta.v").build());
+        assertThrows(IllegalArgumentException.class, () -> DiffsertOptions.builder().versionField("v", 0.0).build());
+        assertThrows(IllegalArgumentException.class, () -> DiffsertOptions.builder().versionField("v", null).build());
+    }
+
     // The following tests pin down server behavior that the README documents as caveats.
 
     @Test
@@ -338,6 +430,10 @@ class DiffsertWriterIT {
     }
 
     // ---------------------------------------------------------------- helpers
+
+    private static DiffsertWriter versioned(DiffsertWriter writer) {
+        return writer.withOptions(writer.options().toBuilder().versionField("version").build());
+    }
 
     private Document stored(String id) {
         return collection.find(new Document("_id", id)).first();

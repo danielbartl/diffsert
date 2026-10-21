@@ -11,6 +11,8 @@ import org.springframework.data.auditing.AuditingHandler;
 import org.springframework.data.mongodb.core.MongoOperations;
 import org.springframework.data.mongodb.core.convert.MongoConverter;
 import org.springframework.data.mongodb.core.convert.MongoTypeMapper;
+import org.springframework.data.mongodb.core.mapping.MongoPersistentEntity;
+import org.springframework.data.mongodb.core.mapping.MongoPersistentProperty;
 
 import com.mongodb.client.MongoCollection;
 import com.mongodb.client.model.WriteModel;
@@ -33,6 +35,10 @@ import dev.jbaby.diffsert.WriteOutcome;
  * Spring Data's auditing annotations on top-level properties are handled: {@code @CreatedDate} and {@code @CreatedBy}
  * keep their stored value once set, {@code @LastModifiedDate} and {@code @LastModifiedBy} don't count as a change, so
  * they only move when something else changed.
+ * <p>
+ * The {@code @Version} property of an entity becomes the {@link DiffsertOptions#versionField() version field}: it is
+ * incremented with every real change (starting at 0, or 1 for primitive types, as with {@code save()}), so optimistic
+ * locking elsewhere in the application notices changes made by Diffsert. Diffsert's own writes don't check it.
  * <p>
  * Writes go through {@link MongoOperations#getCollection(String)}, so they join a Spring-managed transaction
  * ({@code MongoTransactionManager}) like any template operation. Listeners are called when a write runs, not when the
@@ -86,13 +92,15 @@ public final class Diffsert {
 
     /**
      * The options used for entities of {@code type}: the configured ones, plus the fields derived from auditing
-     * annotations if auditing is enabled. For {@link Document}s, always the configured ones.
+     * annotations if auditing is enabled, and the field of its {@code @Version} property as version field. For
+     * {@link Document}s, always the configured ones.
      *
      * @throws IllegalArgumentException if auditing is enabled and {@code type} has auditing annotations on nested
-     *                                  properties
+     *                                  properties, or if {@code type} has a {@code @Version} property and a different
+     *                                  version field is configured
      */
     public DiffsertOptions optionsFor(Class<?> type) {
-        return auditingOf(type).applyTo(writer.options());
+        return withVersionFieldOf(type, auditingOf(type).applyTo(writer.options()));
     }
 
     /** Returns an instance for the same database with different options. */
@@ -227,8 +235,8 @@ public final class Diffsert {
             if (batchOptions == null) {
                 batchOptions = entityOptions;
             } else if (!batchOptions.equals(entityOptions)) {
-                throw new IllegalArgumentException("entities in one batch must have the same auditing fields; write "
-                        + entity.getClass().getName() + " in a separate batch");
+                throw new IllegalArgumentException("entities in one batch must have the same auditing and version "
+                        + "fields; write " + entity.getClass().getName() + " in a separate batch");
             }
         }
         return new Batch(writerWith(batchOptions), docs);
@@ -240,6 +248,34 @@ public final class Diffsert {
 
     private DiffsertWriter writerWith(DiffsertOptions options) {
         return options.equals(writer.options()) ? writer : writer.withOptions(options);
+    }
+
+    /** {@code options} with the field of {@code type}'s {@code @Version} property as version field, if it has one. */
+    private DiffsertOptions withVersionFieldOf(Class<?> type, DiffsertOptions options) {
+        if (Map.class.isAssignableFrom(type)) {
+            return options;
+        }
+        MongoPersistentEntity<?> entity = mongo.getConverter().getMappingContext().getPersistentEntity(type);
+        if (entity == null || !entity.hasVersionProperty()) {
+            return options;
+        }
+        MongoPersistentProperty version = entity.getRequiredVersionProperty();
+        String field = version.getFieldName();
+        if (options.versionField() != null && !options.versionField().equals(field)) {
+            throw new IllegalArgumentException("version field '" + options.versionField() + "' is configured, but "
+                    + type.getName() + " has its @Version property in '" + field + "'");
+        }
+        return options.toBuilder().versionField(field, initialVersionOf(version)).build();
+    }
+
+    /** As {@code save()} initializes it: 1 for primitive types, otherwise 0; an int for int types, else a long. */
+    private static Number initialVersionOf(MongoPersistentProperty version) {
+        Class<?> type = version.getType();
+        int initial = type.isPrimitive() ? 1 : 0;
+        if (type == int.class || type == Integer.class) {
+            return Integer.valueOf(initial);
+        }
+        return Long.valueOf(initial);
     }
 
     private EntityAuditing auditingOf(Class<?> type) {

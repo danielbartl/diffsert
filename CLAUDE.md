@@ -20,6 +20,9 @@ so downstream logic fired for every document even when nothing relevant changed.
 - `ignoredFields` (e.g. `jobRunId`, `_updatedAt`): compared via `$unsetField` on both sides; if only these differ,
   `$$ROOT` is kept (no-op). Otherwise they are written along with the real changes.
 - `preservedFields` (e.g. `_createdAt`): merged back from the stored doc via `$mergeObjects` + `$type != "missing"`.
+- `versionField` (e.g. `version`): left out of the comparison like ignored fields, incoming value ignored; on a real
+  change set to stored + 1 (`$add` keeps int32/int64), or to `initialVersion` (Integer or Long) on insert / when the
+  stored doc has none (missing or null). Like `MongoTemplate.updateFirst`, no version check of its own.
 - On an upserting insert, `$$ROOT` is `{_id: ...}`; the pipeline checks `$$ROOT != {_id: "$_id"}` so a new document is
   never reduced to just its `_id`.
 - Modes: `REPLACE` (missing fields are removed) and `MERGE` (`$mergeObjects: [$$ROOT, doc]`, foreign fields kept).
@@ -33,18 +36,20 @@ so downstream logic fired for every document even when nothing relevant changed.
 - Multi-module build, parent `diffsert-parent` (Spring Boot BOM 4.0.8 imported, plugin versions pinned, Java 21 minimum):
   - `diffsert-core`, package `dev.jbaby.diffsert`, only `mongodb-driver-sync`: `DiffsertWriter` (pipeline + writes,
     takes a `MongoCollection<Document>` per call), `DiffsertOptions` (immutable record + builder: mode, ignored,
-    preserved, ordered), `WriteOutcome`, `BatchWriteResult`, `DiffsertListener` (called after every write).
+    preserved, ordered, versionField + initialVersion; the old 4-arg constructor is kept), `WriteOutcome`, `BatchWriteResult`, `DiffsertListener` (called after every write).
   - `diffsert-spring-data`, package `dev.jbaby.diffsert.spring`: `Diffsert` (entity conversion via `MongoConverter`,
     `withTypeKeyRemoved`, delegates to `DiffsertWriter`). `withAuditing(AuditingHandler)`: `EntityAuditing` derives
     preserved (`@CreatedDate/@CreatedBy`) and ignored (`@LastModifiedDate/@LastModifiedBy`) fields per entity type
     (top-level only, nested ones rejected), added to the configured options (`optionsFor(type)`); entities are marked
     with `markCreated` (+ `markModified` if `modifyOnCreate = false` left them empty). `Document`s never get derived
-    fields (the owner's own jobs write Jackson-built Documents). A batch must agree on the derived fields.
+    fields (the owner's own jobs write Jackson-built Documents). Always (no opt-in): an entity's `@Version` property
+    becomes the version field, initial value as `save()` initializes it (1 for primitives, else 0; Integer for int
+    types, else Long); a different configured version field is rejected. A batch must agree on the derived fields.
   - `diffsert-spring-boot-starter`, package `dev.jbaby.diffsert.boot`: `DiffsertAutoConfiguration` (after Boot 4's
     `DataMongoAutoConfiguration`; `@ConditionalOnMissingBean`; a `DiffsertOptions` bean wins over properties; all
     `DiffsertListener` beans are notified, each isolated: failures are logged, never thrown to the caller; uses the
     `mongoAuditingHandler` bean from `@EnableMongoAuditing`, by name, because JPA registers another handler),
-    `DiffsertProperties` (`diffsert.mode/ignore-fields/preserve-fields/ordered/remove-type-key`), `DiffsertMetrics`
+    `DiffsertProperties` (`diffsert.mode/ignore-fields/preserve-fields/ordered/version-field/remove-type-key`), `DiffsertMetrics`
     (counter `diffsert.documents{collection,outcome}`, only with a `MeterRegistry`).
 - Tests: `DiffsertWriterIT` (core, Documents) and `DiffsertIT` (spring-data, entities) assert the actual change stream
   events per scenario: insert, ignored-only no-op, changed fields only + preserved `_createdAt` + stable field order,
@@ -54,7 +59,10 @@ so downstream logic fired for every document even when nothing relevant changed.
   listeners are called at write time, so they also see rolled-back writes. Auditing: insert sets created/modified,
   audit-only differences are a no-op, real changes move only the modified fields, `modifyOnCreate = false`,
   Documents untouched, nested fields and mixed batches rejected; the starter IT runs it with Boot's own Mongo
-  auto-configuration and `@EnableMongoAuditing`.
+  auto-configuration and `@EnableMongoAuditing`. Versions: core ITs pin initial value, no-op/real change, incoming
+  value ignored but its position kept, stored type kept, stored doc without version, failure on a non-numeric stored
+  value; `DiffsertIT` mixes Diffsert with `save()` (a Diffsert change makes a stale `save()` fail with
+  `OptimisticLockingFailureException`; primitive versions start at 1, otherwise `save()` would insert).
   Starter: `DiffsertAutoConfigurationTest` (context runner, no server) and `DiffsertAutoConfigurationIT`.
   `TestMongo` (module `diffsert-test-support`, package `dev.jbaby.diffsert.testsupport`, never published) holds
   the container setup and the sentinel-based `eventsDuring` helper.
@@ -125,5 +133,5 @@ so downstream logic fired for every document even when nothing relevant changed.
 
 - Minimum Spring Data version (built against Spring Boot 4.0.x / Spring Data 2025.1). Owner (2026-10-21): Boot 4+
   only for now; a Spring Data 4.5 / Boot 3.5 compatibility check can come later.
-- `@Version` on entities: Diffsert writes whatever the entity holds (a null version removes the stored field in
-  REPLACE mode). Options: reject such entities clearly, or increment the version in the pipeline only on real changes.
+- ~~`@Version` on entities~~: decided (2026-10-21) to increment the version in the pipeline on real changes
+  (`versionField`), not to reject such entities.

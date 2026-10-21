@@ -15,12 +15,20 @@ import java.util.Set;
  * @param preservedFields top-level fields whose stored value is kept when the document already has one
  *                        (e.g. {@code _createdAt}). They don't need to be listed as ignored as well.
  * @param ordered         ordered or unordered bulk writes (unordered is faster and continues after a failed operation)
+ * @param versionField    top-level field that counts the real changes of a document (e.g. {@code version}, as with
+ *                        Spring Data's {@code @Version}), or {@code null}. It doesn't count as a change itself and its
+ *                        incoming value is ignored: a real change sets it to the stored value + 1, an insert (or a
+ *                        stored document without one) to {@code initialVersion}. A no-op leaves it as it is.
+ * @param initialVersion  the first value of the version field, an {@link Integer} or a {@link Long} (which also
+ *                        decides its BSON type); increments keep the stored type
  */
 public record DiffsertOptions(
         Mode mode,
         Set<String> ignoredFields,
         Set<String> preservedFields,
-        boolean ordered) {
+        boolean ordered,
+        String versionField,
+        Number initialVersion) {
 
     public enum Mode {
         /** The new document becomes the full new state; fields missing from it are removed from the stored document. */
@@ -35,9 +43,24 @@ public record DiffsertOptions(
         }
         ignoredFields = validated(ignoredFields, "ignoredFields");
         preservedFields = validated(preservedFields, "preservedFields");
+        if (versionField != null) {
+            validated(Set.of(versionField), "versionField");
+            if (ignoredFields.contains(versionField) || preservedFields.contains(versionField)) {
+                throw new IllegalArgumentException(
+                        "versionField '" + versionField + "' must not be an ignored or preserved field as well");
+            }
+        }
+        if (!(initialVersion instanceof Integer || initialVersion instanceof Long)) {
+            throw new IllegalArgumentException("initialVersion must be an Integer or a Long, got " + initialVersion);
+        }
     }
 
-    /** REPLACE mode, no ignored or preserved fields, unordered bulk writes. */
+    /** Options without a version field. */
+    public DiffsertOptions(Mode mode, Set<String> ignoredFields, Set<String> preservedFields, boolean ordered) {
+        this(mode, ignoredFields, preservedFields, ordered, null, 0L);
+    }
+
+    /** REPLACE mode, no ignored, preserved or version fields, unordered bulk writes. */
     public static DiffsertOptions defaults() {
         return builder().build();
     }
@@ -52,6 +75,8 @@ public record DiffsertOptions(
         b.ignoredFields.addAll(ignoredFields);
         b.preservedFields.addAll(preservedFields);
         b.ordered = ordered;
+        b.versionField = versionField;
+        b.initialVersion = initialVersion;
         return b;
     }
 
@@ -73,6 +98,8 @@ public record DiffsertOptions(
         private final Set<String> ignoredFields = new LinkedHashSet<>();
         private final Set<String> preservedFields = new LinkedHashSet<>();
         private boolean ordered = false;
+        private String versionField;
+        private Number initialVersion = 0L;
 
         private Builder() {
         }
@@ -107,8 +134,23 @@ public record DiffsertOptions(
             return this;
         }
 
+        /**
+         * Field that counts real changes, starting at {@code 0L} (see {@link DiffsertOptions#versionField()});
+         * {@code null} for none.
+         */
+        public Builder versionField(String field) {
+            return versionField(field, 0L);
+        }
+
+        /** Field that counts real changes, starting at {@code initialValue} (an {@link Integer} or a {@link Long}). */
+        public Builder versionField(String field, Number initialValue) {
+            this.versionField = field;
+            this.initialVersion = initialValue;
+            return this;
+        }
+
         public DiffsertOptions build() {
-            return new DiffsertOptions(mode, ignoredFields, preservedFields, ordered);
+            return new DiffsertOptions(mode, ignoredFields, preservedFields, ordered, versionField, initialVersion);
         }
     }
 }

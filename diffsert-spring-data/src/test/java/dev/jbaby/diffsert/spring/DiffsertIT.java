@@ -19,11 +19,13 @@ import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.springframework.dao.OptimisticLockingFailureException;
 import org.springframework.data.annotation.CreatedBy;
 import org.springframework.data.annotation.CreatedDate;
 import org.springframework.data.annotation.Id;
 import org.springframework.data.annotation.LastModifiedBy;
 import org.springframework.data.annotation.LastModifiedDate;
+import org.springframework.data.annotation.Version;
 import org.springframework.data.auditing.AuditingHandler;
 import org.springframework.data.auditing.IsNewAwareAuditingHandler;
 import org.springframework.data.mongodb.MongoTransactionManager;
@@ -115,6 +117,23 @@ class DiffsertIT {
 
     @org.springframework.data.mongodb.core.mapping.Document("orders")
     record ShippedOrder(@Id String id, Shipping shipping) {
+    }
+
+    /** Also written by the application with save(), so it has a version for optimistic locking. */
+    @org.springframework.data.mongodb.core.mapping.Document("orders")
+    record VersionedOrder(@Id String id, String status, @Version Long version) {
+
+        static VersionedOrder of(String id, String status) {
+            return new VersionedOrder(id, status, null);
+        }
+
+        VersionedOrder withStatus(String newStatus) {
+            return new VersionedOrder(id, newStatus, version);
+        }
+    }
+
+    @org.springframework.data.mongodb.core.mapping.Document("orders")
+    record CountedOrder(@Id String id, String status, @Version int version) {
     }
 
     static Customer customer(String id, String name, String city) {
@@ -427,6 +446,50 @@ class DiffsertIT {
         assertTrue(nested.getMessage().contains("shipping.updatedAt"), nested.getMessage());
         assertThrows(IllegalArgumentException.class,
                 () -> audited.upsertAll(List.of(Order.of("o1", "open"), customer("c1", "Acme", "Berlin")), "orders"));
+        assertEquals(0, orders.countDocuments());
+    }
+
+    @Test
+    void versionCountsRealChangesSoSaveDetectsThem() {
+        // the application writes these documents with save() too, so the type key stays
+        Diffsert versioned = new Diffsert(template).withTypeKeyRemoved(false);
+        assertEquals("version", versioned.optionsFor(VersionedOrder.class).versionField());
+        assertEquals(WriteOutcome.INSERTED, versioned.upsert(VersionedOrder.of("o1", "open")));
+        assertEquals(0L, storedOrder("o1").get("version"));
+
+        VersionedOrder saved = template.save(template.findById("o1", VersionedOrder.class).withStatus("paid"));
+        assertEquals(1L, saved.version());
+        assertEquals(WriteOutcome.UNCHANGED, versioned.upsert(VersionedOrder.of("o1", "paid")));
+
+        var events = TestMongo.eventsDuring(orders,
+                () -> assertEquals(WriteOutcome.UPDATED, versioned.upsert(VersionedOrder.of("o1", "shipped"))));
+
+        assertEquals(1, events.size());
+        assertEquals(Set.of("status", "version"), events.get(0).getUpdateDescription().getUpdatedFields().keySet());
+        assertEquals(2L, storedOrder("o1").get("version"));
+        assertThrows(OptimisticLockingFailureException.class, () -> template.save(saved.withStatus("cancelled")));
+    }
+
+    @Test
+    void primitiveVersionStartsAtOneAsWithSave() {
+        Diffsert versioned = new Diffsert(template).withTypeKeyRemoved(false);
+
+        versioned.upsert(new CountedOrder("o1", "open", 0));
+
+        assertEquals(1, storedOrder("o1").get("version"));
+        // for a primitive version, 0 means new: save() would insert and fail on the existing id
+        CountedOrder saved = template.save(new CountedOrder("o1", "paid", template.findById("o1", CountedOrder.class)
+                .version()));
+        assertEquals(2, saved.version());
+    }
+
+    @Test
+    void versionFieldMustMatchConfiguredOneAndBatchesMustAgree() {
+        Diffsert configured = new Diffsert(template, DiffsertOptions.builder().versionField("revision").build());
+
+        assertThrows(IllegalArgumentException.class, () -> configured.upsert(VersionedOrder.of("o1", "open")));
+        assertThrows(IllegalArgumentException.class,
+                () -> writer.upsertAll(List.of(VersionedOrder.of("o1", "open"), Order.of("o2", "open")), "orders"));
         assertEquals(0, orders.countDocuments());
     }
 

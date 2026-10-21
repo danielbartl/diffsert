@@ -138,6 +138,7 @@ writer.upsertAll(database.getCollection("customers"), documents);
 | `preserveExistingValue(...)`       | `diffsert.preserve-fields` | none      | Top-level fields whose stored value is kept once set (e.g. `_createdAt`).                               |
 | `replace()` / `merge()`            | `diffsert.mode`            | `replace` | `replace`: fields missing from the new document are removed. `merge`: fields only in the stored document are kept. |
 | `ordered(...)`                     | `diffsert.ordered`         | `false`   | Ordered bulk writes stop at the first error; unordered ones continue and are faster.                    |
+| `versionField(...)`                | `diffsert.version-field`   | none      | Top-level field that counts real changes, see [Versions](#versions). Entities use their `@Version`.     |
 | `Diffsert.withTypeKeyRemoved(...)` | `diffsert.remove-type-key` | `true`    | Remove Spring Data's type key (`_class`) from converted entities.                                       |
 | `Diffsert.withAuditing(...)`       | `@EnableMongoAuditing`     | off       | Handle Spring Data's auditing annotations, see below.                                                   |
 
@@ -165,6 +166,22 @@ record Order(@Id String id, String status,
   write, which writes it once.
 - Only top-level properties are supported: entities with auditing annotations in embedded objects are rejected, and
   entity types with different auditing fields can't be mixed in one batch.
+
+### Versions
+
+A version field counts the real changes of a document. Entities get the field of their `@Version` property
+automatically; for `Document`s, configure it with `versionField("version")`.
+
+- It doesn't count as a change, and its incoming value is ignored, as is the version of the written entity (which is
+  not updated either).
+- A real change sets it to the stored value + 1, keeping the stored `int`/`long` type. A no-op leaves it as it is.
+- An insert, or a stored document without one, gets the initial value: 0, or 1 for primitive `@Version` types, as with
+  `save()`. For `Document`s, `versionField("version", 1)` sets it.
+
+So an application that also writes these documents with `save()` keeps working: a document inserted by Diffsert isn't
+new for `save()`, and optimistic locking notices Diffsert's changes. Like `MongoTemplate.updateFirst`, Diffsert
+increments the version without checking it, so its own writes always win. Keep the type key in that case
+(`withTypeKeyRemoved(false)`), otherwise `_class` counts as a change whenever the other side wrote last.
 
 ### Results, listeners and metrics
 
