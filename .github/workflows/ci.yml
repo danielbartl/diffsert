@@ -20,12 +20,20 @@ concurrency:
 jobs:
   verify:
     name: Java ${{ matrix.java }} / MongoDB ${{ matrix.mongo }}
-    runs-on: ubuntu-latest
+    runs-on: ${{ matrix.runner || 'ubuntu-latest' }}
     strategy:
       fail-fast: false
       matrix:
         java: ["21", "25"]
         mongo: ["5.0", "6.0", "7.0", "8.0", "8.2", "8.3", "9.0"]
+        include:
+          # MongoDB 8.0 and 8.3 refuse to start on the 7.0.0 kernel of ubuntu-latest (since image 20261018), although
+          # it contains the rseq fix: https://jira.mongodb.org/browse/SERVER-136848. Ubuntu 22.04 runners have 6.8.
+          # Move back once a server patch fixes the check.
+          - mongo: "8.0"
+            runner: ubuntu-22.04
+          - mongo: "8.3"
+            runner: ubuntu-22.04
     steps:
       - uses: actions/checkout@v7
 

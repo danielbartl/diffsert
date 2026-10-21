@@ -79,7 +79,9 @@ so downstream logic fired for every document even when nothing relevant changed.
 2. ~~CI~~ (done): `.github/workflows/ci.yml` runs `mvn verify` as a matrix over Java 21 and 25 and floating
    tags `mongo:5.0` … `mongo:9.0` (via `-Dmongo.image`), on push to `main`, PRs and weekly. The delta-oplog behavior
    is a server implementation detail, not a documented guarantee, so the supported versions must be tested; add
-   new server lines to the matrix as they appear.
+   new server lines to the matrix as they appear. MongoDB 8.0 and 8.3 run on `ubuntu-22.04`: they refuse to start on
+   ubuntu-latest's kernel `7.0.0-*-azure` (SERVER-136848, the 6.19+ startup check reads `uname -r`, not the
+   upstream patch level). Move them back once a server patch fixes the check.
 3. ~~Naming pass~~ (done): project name Diffsert is final; entry point `Diffsert`, options `DiffsertOptions`.
    In the module split, keep `Diffsert` as the Spring Data entry point and give the plain-driver core class its
    own name.
