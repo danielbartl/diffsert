@@ -842,6 +842,48 @@ BatchWriteResult result = writer.upsertAll(customers, documents);</code></pre>
     </div>
   </section>
 
+  <section id="debezium">
+    <div class="wrap">
+      <div class="sec-head">
+        <p class="eyebrow">With Debezium</p>
+        <h2>Read the delta, not the full document.</h2>
+        <p>Debezium's MongoDB connector reports both <code>update</code> and <code>replace</code> change events as <code>op: "u"</code>. What else an event carries depends on its <code>capture.mode</code>.</p>
+      </div>
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th scope="col">Capture mode</th><th scope="col">Update event (Diffsert)</th><th scope="col">Replace event (save(), small documents)</th></tr></thead>
+          <tbody>
+            <tr><td><code>change_streams_update_full</code> (default)</td><td><code>updateDescription</code>, plus the full document in <code>after</code></td><td>Full document in <code>after</code>, no <code>updateDescription</code></td></tr>
+            <tr><td><code>change_streams</code></td><td><code>updateDescription</code> only, no <code>after</code></td><td>Full document in <code>after</code>, no <code>updateDescription</code></td></tr>
+            <tr><td><code>*_with_pre_image</code> (MongoDB 6.0+)</td><td>Additionally the old document in <code>before</code></td><td>Additionally <code>before</code></td></tr>
+          </tbody>
+        </table>
+      </div>
+      <ul class="caveats">
+        <li>
+          <h3>Unchanged documents produce no event in any mode</h3>
+          <p>Nothing is written, so there is nothing for Debezium to capture, whatever the capture mode.</p>
+        </li>
+        <li>
+          <h3>Don't read changes from <code>after</code></h3>
+          <p>In the default mode, <code>after</code> is the whole document, so it doesn't show what changed. Debezium reads it from the collection when it processes the event, so it can already contain later changes, or be <code>null</code> if the document was deleted in the meantime, unless you use <code>capture.mode.full.update.type=post_image</code> (MongoDB 6.0+).</p>
+        </li>
+        <li>
+          <h3>No <code>updateDescription</code> means a replace</h3>
+          <p>Small documents can still produce <code>replace</code> events. Treat every field as possibly changed, or compare <code>before</code> and <code>after</code> in a pre-image mode.</p>
+        </li>
+        <li>
+          <h3>Check <code>change_streams</code> pipelines before switching</h3>
+          <p>With <code>save()</code>, every event carried the full document, even in this mode. With Diffsert, update events have no <code>after</code>, and <code>ExtractNewDocumentState</code> emits only <code>_id</code> and the changed fields, nested ones as dotted keys such as <code>address.street</code>. A sink that expects whole documents would write partial ones.</p>
+        </li>
+        <li>
+          <h3><code>ExtractNewDocumentState</code> keeps only <code>after</code></h3>
+          <p>In the default mode, flattened records lose the delta. If consumers need the changed fields, copy them into the record with the transform's <code>add.fields</code> option.</p>
+        </li>
+      </ul>
+    </div>
+  </section>
+
   <section id="caveats">
     <div class="wrap">
       <div class="sec-head">

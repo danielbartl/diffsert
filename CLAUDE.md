@@ -105,6 +105,10 @@ so downstream logic fired for every document even when nothing relevant changed.
 - Arrays and nested documents are reported by path (`tags.2`, `address.street`); shortened arrays via
   `truncatedArrays`. (An earlier note claiming "whole array" was wrong.)
 - Driver exceptions (e.g. `MongoBulkWriteException`) are thrown untranslated on purpose.
+- Debezium (README "With Debezium"; from the 2.7 docs and connector source, not covered by our tests): `update` and
+  `replace` both become `op: "u"`, a replace has no `updateDescription`. Default `capture.mode`
+  `change_streams_update_full` adds the looked-up full document as `after`. With `change_streams`, Diffsert's
+  update events have no `after`, so `ExtractNewDocumentState` emits partial documents where `save()` gave full ones.
 
 ## Open decisions (ask the owner)
 

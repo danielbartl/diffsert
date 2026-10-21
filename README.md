@@ -153,6 +153,32 @@ Micrometer, the starter counts written documents as `diffsert.documents`, tagged
 For sessions, transactions or mixed bulk writes, `toWriteModels(...)` returns the write models without executing
 them, and `buildPipeline(...)` the pipeline for a single document.
 
+## With Debezium
+
+Debezium's MongoDB connector reports both `update` and `replace` change events as `op: "u"`. What else an event
+carries depends on its `capture.mode`:
+
+| `capture.mode`                         | `update` event (Diffsert)                              | `replace` event (`save()`, small documents)      |
+|----------------------------------------|--------------------------------------------------------|--------------------------------------------------|
+| `change_streams_update_full` (default) | `updateDescription`, plus the full document in `after` | full document in `after`, no `updateDescription` |
+| `change_streams`                       | `updateDescription` only, no `after`                   | full document in `after`, no `updateDescription` |
+| `*_with_pre_image` (MongoDB 6.0+)      | additionally the old document in `before`              | additionally `before`                            |
+
+- **Unchanged documents produce no event in any mode**, because nothing is written.
+- **Read changes from `updateDescription`, not from `after`.** In the default mode, `after` is the whole document, so
+  it doesn't show what changed. Debezium also reads it from the collection when it processes the event, not at write
+  time, so it can already contain later changes, or be `null` if the document was deleted in the meantime (unless
+  `capture.mode.full.update.type=post_image`, MongoDB 6.0+).
+- **An event without `updateDescription` is a replace** (see the caveat on small documents below): treat every field
+  as possibly changed, or compare `before` and `after` in a pre-image mode.
+- **Check `change_streams` pipelines before switching to Diffsert.** With `save()`/`replaceOne`, every event carried
+  the full document, even in this mode. With Diffsert, update events have no `after`, and `ExtractNewDocumentState`
+  emits only `_id` and the changed fields (nested ones as dotted keys such as `address.street`). A sink that expects
+  whole documents would then write partial ones. Use `change_streams_update_full`, or build the sink for partial
+  updates.
+- **`ExtractNewDocumentState` keeps only `after`** in the default mode. If consumers need the changed fields, copy
+  them into the flattened record with its `add.fields` option.
+
 ## Caveats
 
 - **Small documents may still produce `replace` events.** MongoDB only logs a delta when it is smaller than the new
