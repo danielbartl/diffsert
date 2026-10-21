@@ -455,10 +455,10 @@ BatchWriteResult result = writer.upsertAll(customers, documents);</code></pre>
     </p>
     <div class="note">
       <p>
-        <strong>Put <code>_id</code> first.</strong> MongoDB always stores <code>_id</code> as the first field. If the
-        document you write has it anywhere else, the field order differs on every write: every write counts as a
-        change, and the event lists <code>_id</code> as updated. Spring Data's converter puts <code>_id</code> first;
-        <code>Document</code>s you build yourself need it first too.
+        <strong><code>_id</code> comes first.</strong> MongoDB always stores <code>_id</code> as the first field, so
+        Diffsert writes it first, wherever your document has it <span class="since" title="Added in 0.2.0">0.2.0</span>.
+        With 0.1.x, put it first yourself: anywhere else, the field order differs on every write, every write counts
+        as a change, and the event lists <code>_id</code> as updated.
       </p>
     </div>
 
@@ -871,7 +871,7 @@ models.add(<span class="k">new</span> DeleteManyModel&lt;&gt;(Filters.eq(<span c
 <pre><code><span class="k">private final</span> ObjectMapper mapper = <span class="k">new</span> ObjectMapper();
 
 Document toDocument(CustomerDto dto, String jobRunId, Date now) {
-    Document doc = <span class="k">new</span> Document(<span class="s">"_id"</span>, dto.id());   <span class="c">// _id first</span>
+    Document doc = <span class="k">new</span> Document(<span class="s">"_id"</span>, dto.id());   <span class="c">// _id first, needed with 0.1.x</span>
     doc.putAll(mapper.convertValue(dto, <span class="k">new</span> TypeReference&lt;Map&lt;String, Object&gt;&gt;() {}));
     doc.remove(<span class="s">"id"</span>);
     <span class="k">return</span> doc.append(<span class="s">"jobRunId"</span>, jobRunId)
@@ -880,7 +880,7 @@ Document toDocument(CustomerDto dto, String jobRunId, Date now) {
 }</code></pre>
     </div>
     <ul>
-      <li><strong><code>_id</code> first.</strong> MongoDB stores <code>_id</code> as the first field; anywhere else, every write counts as a change.</li>
+      <li><strong><code>_id</code> first</strong> with 0.1.x: MongoDB stores <code>_id</code> as the first field, and anywhere else every write counts as a change. Diffsert 0.2.0 moves it to the front for you.</li>
       <li><strong>Stable field order.</strong> Jackson writes the properties of a class in the same order every time; <code>@JsonPropertyOrder</code> makes the order explicit. Don't build documents from a <code>HashMap</code> or a <code>HashSet</code>: their order can differ between runs.</li>
       <li><strong>Dates.</strong> <code>convertValue</code> turns <code>java.time</code> values into numbers or strings, depending on the <code>ObjectMapper</code>'s configuration, not into BSON dates. Set date fields yourself, as <code>Date</code> or <code>Instant</code>.</li>
       <li><strong>Nulls.</strong> Decide whether null properties are written as <code>null</code> or left out (<code>@JsonInclude(NON_NULL)</code>), and keep it that way: switching changes every document that has such a field.</li>
@@ -950,7 +950,7 @@ collection.deleteOne(<span class="k">new</span> Document(<span class="s">"_id"</
     </p>
     <ul>
       <li>A field that changes on every run isn't ignored: a timestamp, a run id, a generated value.</li>
-      <li><code>_id</code> isn't the first field of the document; the event then lists <code>_id</code>.</li>
+      <li>With 0.1.x: <code>_id</code> isn't the first field of the document; the event then lists <code>_id</code>.</li>
       <li><code>_class</code>: the application writes it with <code>save()</code>, and Diffsert removes it, or the other way round.</li>
       <li>The field order changed: a reordered DTO, a different mapping, a <code>HashMap</code>.</li>
       <li>The array order changes: lists built from a <code>HashSet</code>, or source data without a fixed sort order.</li>

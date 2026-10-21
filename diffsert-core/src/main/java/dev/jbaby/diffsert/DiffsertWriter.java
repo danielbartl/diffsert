@@ -34,8 +34,9 @@ import com.mongodb.client.result.UpdateResult;
  * configured via {@link DiffsertOptions#preservedFields()} keep their stored value. A
  * {@link DiffsertOptions#versionField()} is incremented with every real change.
  * <p>
- * Works with plain driver {@link Document}s; every document must have an {@code _id}. The collection is passed per
- * call, so its codec registry, write concern etc. apply as configured by the caller.
+ * Works with plain driver {@link Document}s; every document must have an {@code _id}, which is written as the first
+ * field wherever the document has it. The collection is passed per call, so its codec registry, write concern etc.
+ * apply as configured by the caller.
  * <p>
  * Driver exceptions such as {@link com.mongodb.MongoBulkWriteException} are thrown as-is, so failed operations can be
  * inspected via {@code getWriteErrors()}.
@@ -137,10 +138,12 @@ public final class DiffsertWriter {
      * }</pre>
      * so it keeps its position in the incoming document (or is appended), and a stored non-numeric value fails the
      * write.
-     * {@code $literal} makes sure values starting with {@code $} are never interpreted as expressions.
+     * {@code $literal} makes sure values starting with {@code $} are never interpreted as expressions, and {@code _id}
+     * is moved to the front of the document: MongoDB always stores it first, so anywhere else, the field order would
+     * differ and every write would count as a change.
      */
     public List<Document> buildPipeline(Document doc) {
-        Object literal = new Document("$literal", doc);
+        Object literal = new Document("$literal", withIdFirst(doc));
         Object incoming = options.mode() == DiffsertOptions.Mode.MERGE
                 ? new Document("$mergeObjects", List.of("$$ROOT", literal))
                 : literal;
@@ -207,6 +210,16 @@ public final class DiffsertWriter {
                 options.initialVersion(),
                 new Document("$add", List.of(storedVersion, 1))));
         return new Document("$mergeObjects", List.of(result, new Document(field, nextVersion)));
+    }
+
+    /** {@code doc}, or a copy of it with {@code _id} moved to the front. */
+    private static Document withIdFirst(Document doc) {
+        if (!doc.containsKey("_id") || doc.keySet().iterator().next().equals("_id")) {
+            return doc;
+        }
+        Document reordered = new Document("_id", doc.get("_id"));
+        reordered.putAll(doc);
+        return reordered;
     }
 
     private static Object idOf(Document doc) {

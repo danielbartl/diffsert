@@ -17,6 +17,8 @@ so downstream logic fired for every document even when nothing relevant changed.
   are then `update` events whose `updateDescription.updatedFields` / `removedFields` contain only real changes.
   Identical result = no-op (matched but not modified, no event).
 - The new document is wrapped in `$literal` so values starting with `$` are never interpreted as expressions.
+- `_id` is moved to the front of the new document: MongoDB always stores it first, so anywhere else every write would
+  be a modification whose event lists `_id` (probed on 7.0; pinned by `writesIdFirstWhereverTheDocumentHasIt`).
 - `ignoredFields` (e.g. `jobRunId`, `_updatedAt`): compared via `$unsetField` on both sides; if only these differ,
   `$$ROOT` is kept (no-op). Otherwise they are written along with the real changes.
 - `preservedFields` (e.g. `_createdAt`): merged back from the stored doc via `$mergeObjects` + `$type != "missing"`.
@@ -127,9 +129,6 @@ so downstream logic fired for every document even when nothing relevant changed.
 - Field order and BSON types must be stable: reordering counts as a change. A numeric type change alone (1 -> 1L)
   is written by the plain pipeline, but with ignored/preserved/version fields `$eq` treats it as equal and keeps the
   stored type.
-- `_id` must be the first field of written Documents: MongoDB always stores it first, so with `_id` elsewhere every
-  write is a modification and the event lists `_id` (probed on 7.0, 2026-10-21; not pinned by a test). Spring
-  Data's converter puts it first.
 - Arrays and nested documents are reported by path (`tags.2`, `address.street`); shortened arrays via
   `truncatedArrays`. (An earlier note claiming "whole array" was wrong.)
 - Driver exceptions (e.g. `MongoBulkWriteException`) are thrown untranslated on purpose.

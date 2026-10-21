@@ -372,6 +372,23 @@ class DiffsertWriterIT {
     }
 
     @Test
+    void writesIdFirstWhereverTheDocumentHasIt() {
+        // MongoDB always stores _id first; written as it comes, every write would count as a change
+        Document a = new Document("name", "Acme").append("city", "Berlin").append("jobRunId", "run-1")
+                .append("_id", "c1");
+        writer.upsert(collection, a);
+
+        var events = eventsDuring(() -> {
+            assertEquals(WriteOutcome.UNCHANGED, writer.upsert(collection, with(a, "jobRunId", "run-2")));
+            assertEquals(WriteOutcome.UNCHANGED, new DiffsertWriter().upsert(collection, a));
+        });
+
+        assertEquals(List.of(), events);
+        assertEquals(List.of("_id", "name", "city", "jobRunId"), List.copyOf(stored("c1").keySet()));
+        assertEquals("name", a.keySet().iterator().next(), "the caller's document is left as it is");
+    }
+
+    @Test
     void rejectsDocumentWithoutId() {
         assertThrows(IllegalArgumentException.class, () -> writer.upsert(collection, new Document("name", "Acme")));
     }
