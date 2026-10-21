@@ -69,8 +69,11 @@ so downstream logic fired for every document even when nothing relevant changed.
 - The IT image is set by `-Dmongo.image=mongo:<tag>` (default `mongo:7.0.43`). Testcontainers 2's `MongoDBContainer`
   needs `.withReplicaSet()` for change streams. The ITs passed on 5.0.33, 6.0.28, 7.0.43, 8.0.32, 8.2.12, 8.3.11
   and 9.0.2 (2026-10-08).
-- Landing page: `site/index.html` (single file, no build), deployed to https://danielbartl.github.io/diffsert/ by
-  `.github/workflows/pages.yml` on changes under `site/`. Keep it in sync with the README.
+- Website (no build), deployed to https://danielbartl.github.io/diffsert/ by `.github/workflows/pages.yml` on changes
+  under `site/`: `site/index.html` (landing page), `site/guide.html` (user guide: every option, Spring integration,
+  events, errors, recipes, troubleshooting; 0.2.0 features marked), shared `site/site.css` (color tokens, header, code,
+  tables, footer) and `site/site.js` (theme toggle, copy buttons). Keep README, landing page and guide in sync with
+  the code. Visual check: headless `chromium --screenshot` (dark theme via `localStorage` "diffsert-theme").
 - Tests encode the intended behavior: do not weaken assertions to make them pass without understanding why they fail.
 
 ## Next steps (in order)
@@ -111,7 +114,8 @@ so downstream logic fired for every document even when nothing relevant changed.
   -DcentralBaseUrl=http://127.0.0.1:9` with a throwaway key (MAVEN_GPG_KEY) and a settings.xml with a dummy
   `central` server. The upload fails, but `target/central-publishing/central-bundle.zip` is built: it must contain
   only `dev/jbaby/<artifact>/<version>/` entries. (`-DskipPublishing=true` skips the bundle entirely.)
-- After a release: bump the install snippets in README and `site/index.html` to the new version.
+- After a release: bump the install snippets in README, `site/index.html` and `site/guide.html` to the new version,
+  and check the guide's "Written for" note and its version marks.
 
 ## Caveats (documented in README; verified on 5.0/7.0/9.0, pinned by DiffsertWriterIT)
 
@@ -121,8 +125,11 @@ so downstream logic fired for every document even when nothing relevant changed.
 - Unchanged documents keep their old run metadata (e.g. `jobRunId`), so "not touched in this run" cannot be
   used to detect deletions; track seen ids separately.
 - Field order and BSON types must be stable: reordering counts as a change. A numeric type change alone (1 -> 1L)
-  is written by the plain pipeline, but with ignored/preserved fields `$eq` treats it as equal and keeps the
+  is written by the plain pipeline, but with ignored/preserved/version fields `$eq` treats it as equal and keeps the
   stored type.
+- `_id` must be the first field of written Documents: MongoDB always stores it first, so with `_id` elsewhere every
+  write is a modification and the event lists `_id` (probed on 7.0, 2026-10-21; not pinned by a test). Spring
+  Data's converter puts it first.
 - Arrays and nested documents are reported by path (`tags.2`, `address.street`); shortened arrays via
   `truncatedArrays`. (An earlier note claiming "whole array" was wrong.)
 - Driver exceptions (e.g. `MongoBulkWriteException`) are thrown untranslated on purpose.

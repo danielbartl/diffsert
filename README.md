@@ -3,7 +3,7 @@
 [![CI](https://github.com/danielbartl/diffsert/actions/workflows/ci.yml/badge.svg)](https://github.com/danielbartl/diffsert/actions/workflows/ci.yml)
 [![Maven Central](https://img.shields.io/maven-central/v/dev.jbaby/diffsert-spring-boot-starter)](https://central.sonatype.com/artifact/dev.jbaby/diffsert-spring-boot-starter)
 
-**Website:** https://danielbartl.github.io/diffsert/
+**Website:** https://danielbartl.github.io/diffsert/ · **User guide:** https://danielbartl.github.io/diffsert/guide.html
 
 Change-aware upserts for MongoDB and Spring Data MongoDB. Only fields that really changed reach the oplog, so change
 streams, Debezium and other CDC consumers see real changes instead of a full replace on every write. Unchanged
@@ -233,8 +233,10 @@ carries depends on its `capture.mode`:
 - **Unchanged documents are not touched.** They keep their old run metadata (e.g. `jobRunId`), so "not written in
   this run" cannot be used to detect deleted source records; track the ids seen in a run separately.
 - **Keep field order and types stable.** A different field order counts as a change and rewrites the document, e.g.
-  after reordering DTO fields. A numeric type change alone (`1` → `1L`) is written without ignored/preserved fields;
-  with them, numerically equal values count as unchanged and the stored type is kept.
+  after reordering DTO fields. A numeric type change alone (`1` → `1L`) is written without ignored, preserved or
+  version fields; with them, numerically equal values count as unchanged and the stored type is kept. Put `_id`
+  first in `Document`s you build yourself: MongoDB always stores it first, so anywhere else every write counts as a
+  change.
 - **Arrays and nested documents are reported by path**, e.g. `tags.2` or `address.street`; shortened arrays appear in
   `truncatedArrays`.
 - **Ignored and preserved fields are top-level only**; documents are matched by `_id` only.

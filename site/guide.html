@@ -1,0 +1,1054 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Diffsert User Guide</title>
+<meta name="description" content="How Diffsert decides what changed, every option, the Spring integration, change streams and Debezium, and the pitfalls that make unchanged documents look changed.">
+<meta property="og:title" content="Diffsert User Guide">
+<meta property="og:description" content="Everything about writing MongoDB documents with Diffsert, so that only real changes reach change streams and Debezium.">
+<meta property="og:type" content="article">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='6' fill='%23131A2A'/%3E%3Crect x='6' y='9' width='20' height='3' rx='1.5' fill='%235A6680'/%3E%3Crect x='6' y='15' width='20' height='4' rx='1' fill='%23FFD43B'/%3E%3Crect x='6' y='22' width='14' height='3' rx='1.5' fill='%235A6680'/%3E%3C/svg%3E">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:wdth,wght@62..125,400..900&family=Atkinson+Hyperlegible+Next:ital,wght@0,400;0,600;0,700;1,400&family=IBM+Plex+Mono:wght@400;500;600&display=swap">
+<link rel="stylesheet" href="site.css">
+<style>
+/* Guide: one reading column with a sticky table of contents; the highlighter marks the current section. */
+.nav a[aria-current="page"] { color: var(--ink); font-weight: 600; }
+
+.guide {
+  display: grid;
+  grid-template-columns: 14.5rem minmax(0, 1fr);
+  gap: clamp(2rem, 5vw, 4.5rem);
+  align-items: start;
+  padding-block: clamp(2rem, 5vw, 3.5rem) clamp(3rem, 7vw, 5rem);
+}
+@media (max-width: 960px) { .guide { grid-template-columns: minmax(0, 1fr); gap: 1.5rem; } }
+
+/* ---------- table of contents ---------- */
+.toc { position: sticky; top: 4.75rem; max-height: calc(100vh - 6rem); overflow-y: auto; font-size: var(--step--1); }
+.toc summary {
+  font: 600 0.78rem/1.3 var(--mono);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--ink-3);
+  cursor: pointer;
+  padding-block: 0.6rem;
+}
+.toc ol { list-style: none; margin: 0.25rem 0 0.75rem; padding: 0; }
+.toc a {
+  display: block;
+  padding: 0.28rem 0 0.28rem 0.85rem;
+  border-left: 2px solid var(--rule);
+  color: var(--ink-2);
+  text-decoration: none;
+  line-height: 1.35;
+}
+.toc a:hover { color: var(--ink); border-left-color: var(--ink-3); }
+.toc a[aria-current="true"] { color: var(--ink); font-weight: 600; border-left-color: var(--hl); }
+@media (max-width: 960px) {
+  .toc {
+    position: static;
+    max-height: none;
+    background: var(--surface);
+    border: 1px solid var(--rule);
+    border-radius: var(--radius);
+    padding: 0.2rem 1rem;
+  }
+}
+
+/* ---------- article ---------- */
+.doc { min-width: 0; max-width: 48rem; }
+.doc h1 {
+  font-size: clamp(2.4rem, 1.6rem + 3.2vw, 3.6rem);
+  font-weight: 850;
+  font-stretch: 115%;
+  letter-spacing: -0.025em;
+  line-height: 1;
+  margin-top: 0.75rem;
+}
+.doc .lede { margin-top: 1.25rem; font-size: var(--step-1); line-height: 1.5; color: var(--ink-2); max-width: 60ch; }
+.doc h2 {
+  font-size: var(--step-2);
+  font-weight: 800;
+  font-stretch: 108%;
+  letter-spacing: -0.015em;
+  line-height: 1.15;
+  margin-top: clamp(3rem, 6vw, 4.5rem);
+  padding-top: 1.25rem;
+  border-top: 1px solid var(--rule);
+}
+.doc h3 { font-size: var(--step-1); font-weight: 700; font-stretch: 100%; line-height: 1.25; margin-top: 2.25rem; }
+.doc h2, .doc h3 { scroll-margin-top: 5rem; }
+.doc h2 code, .doc h3 code { font-size: 0.85em; font-weight: 500; }
+.doc p, .doc ul, .doc ol { margin: 1rem 0 0; color: var(--ink-2); max-width: var(--measure); }
+.doc ul, .doc ol { padding-left: 1.25rem; }
+.doc li + li { margin-top: 0.45rem; }
+.doc strong { color: var(--ink); }
+.doc .code, .doc .table-wrap, .doc .note { margin-top: 1.25rem; }
+.doc table { min-width: 34rem; }
+.doc .msgs td code { white-space: normal; }
+.doc .msgs td:first-child { width: 55%; }
+.note {
+  background: var(--surface);
+  border: 1px solid var(--rule);
+  border-left: 4px solid var(--hl);
+  border-radius: var(--radius);
+  padding: 0.9rem 1.1rem;
+  color: var(--ink-2);
+  max-width: var(--measure);
+}
+.doc .note p { margin: 0; }
+.doc .note p + p { margin-top: 0.6rem; }
+.since {
+  font: 600 0.68rem/1 var(--mono);
+  letter-spacing: 0.04em;
+  padding: 0.25rem 0.4rem;
+  border-radius: 3px;
+  background: var(--hl-soft);
+  color: var(--ink);
+  white-space: nowrap;
+  vertical-align: middle;
+}
+h2 .since, h3 .since { margin-left: 0.5rem; position: relative; top: -0.15em; }
+.anchor { margin-left: 0.45rem; color: var(--ink-3); text-decoration: none; font-weight: 500; opacity: 0; }
+h2:hover .anchor, h3:hover .anchor, .anchor:focus-visible { opacity: 1; }
+@media (hover: none) { .anchor { display: none; } }
+</style>
+</head>
+<body>
+
+<header class="top">
+  <div class="wrap">
+    <a class="mark" href="./" aria-label="Diffsert home"><span class="hl">diff</span>sert</a>
+    <nav class="nav" aria-label="Site">
+      <a href="./">Overview</a>
+      <a href="guide.html" aria-current="page">Guide</a>
+      <a class="gh" href="https://github.com/danielbartl/diffsert">
+        <svg width="16" height="16" viewBox="0 0 16 16" aria-hidden="true" fill="currentColor"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z"/></svg>
+        GitHub
+      </a>
+      <button class="theme-btn" id="theme-btn" type="button" aria-label="Color theme: system">auto</button>
+    </nav>
+  </div>
+</header>
+
+<div class="wrap guide">
+  <nav class="toc" aria-label="Guide contents">
+    <details id="toc">
+      <summary>Contents</summary>
+      <ol>
+        <li><a href="#purpose">What Diffsert is for</a></li>
+        <li><a href="#how">How it works</a></li>
+        <li><a href="#install">Installation</a></li>
+        <li><a href="#start">Getting started</a></li>
+        <li><a href="#writing">Writing documents</a></li>
+        <li><a href="#changes">What counts as a change</a></li>
+        <li><a href="#ignored">Ignored fields</a></li>
+        <li><a href="#preserved">Preserved fields</a></li>
+        <li><a href="#versions">Version field</a></li>
+        <li><a href="#entities">Spring Data entities</a></li>
+        <li><a href="#auditing">Auditing</a></li>
+        <li><a href="#boot">Spring Boot starter</a></li>
+        <li><a href="#listeners">Listeners and metrics</a></li>
+        <li><a href="#transactions">Transactions and bulk writes</a></li>
+        <li><a href="#events">Change streams and Debezium</a></li>
+        <li><a href="#errors">Errors and retries</a></li>
+        <li><a href="#recipes">Recipes</a></li>
+        <li><a href="#troubleshooting">Troubleshooting</a></li>
+        <li><a href="#limits">Limitations</a></li>
+      </ol>
+    </details>
+  </nav>
+
+  <main class="doc">
+    <p class="eyebrow">Diffsert documentation</p>
+    <h1>User guide</h1>
+    <p class="lede">
+      Diffsert writes MongoDB documents so that only real changes reach the oplog, change streams and Debezium. This
+      guide explains how it decides what changed, every option, the Spring integration, and the pitfalls that make
+      unchanged documents look changed.
+    </p>
+    <div class="note">
+      <p>Written for Diffsert 0.2.0. Features marked <span class="since">0.2.0</span> are not available in 0.1.x.</p>
+    </div>
+
+    <!-- ================================================================ purpose -->
+    <h2 id="purpose">What Diffsert is for</h2>
+    <p>
+      Many applications write the same documents again and again: a sync job copies another database into MongoDB
+      every hour, an import reloads a product catalog, a read model is rebuilt from its source. With <code>save()</code>
+      or <code>replaceOne</code>, every one of those writes replaces the whole document. MongoDB records the full
+      document in the oplog, and change streams and Debezium report a <code>replace</code> event, whether anything
+      changed or not.
+    </p>
+    <p>Diffsert writes the same documents, but MongoDB records only what changed:</p>
+    <ul>
+      <li>An unchanged document causes no write and no event.</li>
+      <li>A changed document produces an <code>update</code> event that lists only the changed fields.</li>
+      <li>A new document produces an <code>insert</code> event, as before.</li>
+    </ul>
+    <p>
+      <strong>Use it when</strong> you write whole documents, mapped from DTOs, entities or another system, and
+      something downstream reacts to changes. <strong>You don't need it</strong> if you already send targeted updates
+      such as <code>$set</code> on single fields, or if documents are written once and never again.
+    </p>
+    <p>
+      Diffsert compares documents exactly, as BSON: field by field, including field order and value types. It doesn't
+      know what your fields mean. Most surprises come from that, so <a href="#changes">What counts as a change</a> is
+      worth reading before you start.
+    </p>
+
+    <!-- ================================================================ how -->
+    <h2 id="how">How it works</h2>
+    <p>Every write is an <code>updateOne</code> by <code>_id</code> with an aggregation pipeline, instead of a replacement:</p>
+    <div class="code">
+      <div class="bar">mongosh</div>
+<pre><code>db.customers.updateOne(
+  { _id: <span class="s">"c1"</span> },
+  [{ $replaceWith: { $literal: <span class="t">&lt;new document&gt;</span> } }],
+  { upsert: true })</code></pre>
+    </div>
+    <p>
+      The stored result is the same document a replace would produce. But for pipeline updates, MongoDB 5.0 and later
+      compare the result with the stored document and write only the difference to the oplog. Change streams turn
+      that difference into an <code>update</code> event. If the result is identical, the update is a no-op: the
+      document is matched but not modified, and no event is emitted.
+    </p>
+    <p>
+      <code>$literal</code> makes sure values are written as they are: a string such as <code>"$5 off"</code> is never
+      evaluated as an expression.
+    </p>
+    <p>With ignored, preserved or version fields configured, the pipeline does more before anything is written:</p>
+    <ol>
+      <li>It copies the stored values of <a href="#preserved">preserved fields</a> into the new document.</li>
+      <li>It compares the result with the stored document, leaving out the <a href="#ignored">ignored fields</a> and the <a href="#versions">version field</a>.</li>
+      <li>If nothing else differs, it keeps the stored document as it is. That is a no-op, even though the ignored fields differ.</li>
+      <li>Otherwise it writes the result, with the version field incremented if there is one.</li>
+    </ol>
+    <p>
+      <code>DiffsertWriter.buildPipeline(document)</code> returns the exact pipeline for a document; its Javadoc
+      explains each stage. What the server reports decides the outcome of a write:
+    </p>
+    <div class="table-wrap">
+      <table>
+        <thead><tr><th scope="col">Server result</th><th scope="col">Outcome</th><th scope="col">Change event</th></tr></thead>
+        <tbody>
+          <tr><td>Inserted by the upsert</td><td><code>INSERTED</code></td><td><code>insert</code></td></tr>
+          <tr><td>Matched and modified</td><td><code>UPDATED</code></td><td><code>update</code>, sometimes <code>replace</code> (see <a href="#events">Change streams</a>)</td></tr>
+          <tr><td>Matched, not modified</td><td><code>UNCHANGED</code></td><td>none</td></tr>
+          <tr><td>Not matched, no upsert</td><td><code>NOT_FOUND</code></td><td>none</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <!-- ================================================================ install -->
+    <h2 id="install">Installation</h2>
+    <p>Diffsert has three modules on Maven Central, under the group id <code>dev.jbaby</code>. Pick one:</p>
+    <div class="table-wrap">
+      <table>
+        <thead><tr><th scope="col">Artifact</th><th scope="col">Use it for</th><th scope="col">Brings in</th></tr></thead>
+        <tbody>
+          <tr><td><code>diffsert-spring-boot-starter</code></td><td>A Spring Boot 4 application</td><td><code>diffsert-spring-data</code>, Boot's MongoDB starter</td></tr>
+          <tr><td><code>diffsert-spring-data</code></td><td>Spring Data MongoDB without Boot's auto-configuration</td><td><code>diffsert-core</code>, Spring Data MongoDB</td></tr>
+          <tr><td><code>diffsert-core</code></td><td>The plain MongoDB Java driver, no Spring</td><td><code>mongodb-driver-sync</code></td></tr>
+        </tbody>
+      </table>
+    </div>
+    <div class="code">
+      <div class="bar">pom.xml <button class="copy" type="button">Copy</button></div>
+<pre><code><span class="k">&lt;dependency&gt;</span>
+    <span class="k">&lt;groupId&gt;</span>dev.jbaby<span class="k">&lt;/groupId&gt;</span>
+    <span class="k">&lt;artifactId&gt;</span>diffsert-spring-boot-starter<span class="k">&lt;/artifactId&gt;</span>
+    <span class="k">&lt;version&gt;</span>0.1.1<span class="k">&lt;/version&gt;</span>
+<span class="k">&lt;/dependency&gt;</span></code></pre>
+    </div>
+    <div class="code">
+      <div class="bar">build.gradle.kts <button class="copy" type="button">Copy</button></div>
+<pre><code>implementation(<span class="s">"dev.jbaby:diffsert-spring-boot-starter:0.1.1"</span>)</code></pre>
+    </div>
+    <p>Requirements:</p>
+    <ul>
+      <li><strong>Java 21</strong> or later.</li>
+      <li><strong>MongoDB 5.0</strong> or later. Change streams, and therefore Debezium, need a replica set; a single-node replica set is enough for development. The writes themselves also work on a standalone server.</li>
+      <li><strong>Spring Boot 4.0</strong> and Spring Data MongoDB 2025.1 for the Spring modules. Earlier Spring versions are not supported.</li>
+    </ul>
+    <p>
+      The behavior Diffsert relies on, MongoDB writing only the difference to the oplog, is a server implementation
+      detail, not a documented guarantee. That's why every supported server line is tested: CI runs all tests against
+      MongoDB 5.0, 6.0, 7.0, 8.0, 8.2, 8.3 and 9.0, on every change and weekly.
+    </p>
+
+    <!-- ================================================================ start -->
+    <h2 id="start">Getting started</h2>
+    <p>
+      The examples write customers from a sync job. Each run has a <code>jobRunId</code> and stamps every document with
+      <code>_createdAt</code> and <code>_updatedAt</code>. These fields differ on every run, so they are configured not
+      to count as a change on their own.
+    </p>
+
+    <h3 id="start-boot">With Spring Boot</h3>
+    <p>Add <code>diffsert-spring-boot-starter</code>. It creates a <code>Diffsert</code> bean from your application's <code>MongoTemplate</code>.</p>
+    <div class="code">
+      <div class="bar">application.yml <button class="copy" type="button">Copy</button></div>
+<pre><code><span class="k">diffsert</span>:
+  <span class="k">ignore-fields</span>: jobRunId, _updatedAt   <span class="c"># alone, these are not a change</span>
+  <span class="k">preserve-fields</span>: _createdAt           <span class="c"># the stored value wins once set</span></code></pre>
+    </div>
+    <div class="code">
+      <div class="bar">CustomerDto.java <button class="copy" type="button">Copy</button></div>
+<pre><code><span class="k">@Document</span>(<span class="s">"customers"</span>)
+<span class="k">public record</span> CustomerDto(
+        <span class="k">@Id</span> String id,
+        String name,
+        String city,
+        String jobRunId,
+        <span class="k">@Field</span>(<span class="s">"_createdAt"</span>) Instant createdAt,
+        <span class="k">@Field</span>(<span class="s">"_updatedAt"</span>) Instant updatedAt) {
+}</code></pre>
+    </div>
+    <div class="code">
+      <div class="bar">CustomerSync.java <button class="copy" type="button">Copy</button></div>
+<pre><code><span class="k">@Component</span>
+<span class="k">class</span> CustomerSync {
+
+    <span class="k">private final</span> Diffsert diffsert;
+
+    CustomerSync(Diffsert diffsert) {
+        <span class="k">this</span>.diffsert = diffsert;
+    }
+
+    <span class="k">void</span> write(List&lt;CustomerDto&gt; batch) {
+        BatchWriteResult result = diffsert.upsertAll(batch, CustomerDto.<span class="k">class</span>);
+        <span class="c">// requested=1000, inserted=3, updated=12, unchanged=985, notFound=0</span>
+    }
+}</code></pre>
+    </div>
+    <p>The <a href="#boot">Spring Boot starter</a> section lists everything else the starter configures.</p>
+
+    <h3 id="start-data">With Spring Data, without Boot</h3>
+    <p>Add <code>diffsert-spring-data</code> and create the <code>Diffsert</code> yourself:</p>
+    <div class="code">
+      <div class="bar">DiffsertConfig.java <button class="copy" type="button">Copy</button></div>
+<pre><code><span class="k">@Bean</span>
+Diffsert diffsert(MongoTemplate mongoTemplate) {
+    <span class="k">return new</span> Diffsert(mongoTemplate, DiffsertOptions.builder()
+            .ignoreForChangeDetection(<span class="s">"jobRunId"</span>, <span class="s">"_updatedAt"</span>)
+            .preserveExistingValue(<span class="s">"_createdAt"</span>)
+            .build());
+}</code></pre>
+    </div>
+
+    <h3 id="start-core">With the plain driver</h3>
+    <p>Add <code>diffsert-core</code>. <code>DiffsertWriter</code> takes <code>Document</code>s and the collection to write to:</p>
+    <div class="code">
+      <div class="bar">CustomerSync.java <button class="copy" type="button">Copy</button></div>
+<pre><code>DiffsertWriter writer = <span class="k">new</span> DiffsertWriter(DiffsertOptions.builder()
+        .ignoreForChangeDetection(<span class="s">"jobRunId"</span>, <span class="s">"_updatedAt"</span>)
+        .preserveExistingValue(<span class="s">"_createdAt"</span>)
+        .build());
+
+MongoCollection&lt;Document&gt; customers = client.getDatabase(<span class="s">"app"</span>)
+        .getCollection(<span class="s">"customers"</span>);
+BatchWriteResult result = writer.upsertAll(customers, documents);</code></pre>
+    </div>
+    <p>
+      The collection is passed with every call, so its codecs and write concern apply as you configured them. If you
+      build the documents yourself, read <a href="#recipe-jackson">Write Documents built with Jackson</a>.
+    </p>
+
+    <!-- ================================================================ writing -->
+    <h2 id="writing">Writing documents</h2>
+    <div class="table-wrap">
+      <table>
+        <thead><tr><th scope="col"><code>Diffsert</code> method</th><th scope="col">What it does</th></tr></thead>
+        <tbody>
+          <tr><td><code>upsert(entity)</code></td><td>Inserts or updates one entity in the collection of its class.</td></tr>
+          <tr><td><code>upsert(entity, "customers")</code></td><td>The same, with an explicit collection.</td></tr>
+          <tr><td><code>update(entity)</code></td><td>Updates the document if it exists; never inserts.</td></tr>
+          <tr><td><code>upsertAll(entities, CustomerDto.class)</code></td><td>Inserts or updates all entities with one bulk write, in the collection of the class.</td></tr>
+          <tr><td><code>upsertAll(entities, "customers")</code></td><td>The same, with an explicit collection.</td></tr>
+          <tr><td><code>updateAll(...)</code></td><td>Updates all that exist with one bulk write; never inserts.</td></tr>
+          <tr><td><code>toWriteModels(entities, upsert)</code></td><td>Builds the write models without executing them, see <a href="#transactions">Transactions and bulk writes</a>.</td></tr>
+          <tr><td><code>toDocument(entity)</code></td><td>The document that would be written.</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <p>
+      <code>DiffsertWriter</code> has the same methods for <code>Document</code>s, with the collection as the first
+      argument, such as <code>upsertAll(collection, documents)</code>, plus <code>buildPipeline(document)</code>.
+      <code>diffsert.writer()</code> returns the writer a <code>Diffsert</code> uses.
+    </p>
+    <p>
+      <strong>Collections.</strong> With a class, the collection is the one Spring Data maps the class to:
+      <code>@Document("customers")</code>, or the name derived from the class.
+    </p>
+    <p>
+      <strong>Ids.</strong> Every document needs an <code>_id</code>, and every entity an id value. Documents are
+      matched by <code>_id</code> only. Diffsert doesn't generate ids: a document or entity without one is rejected.
+    </p>
+    <p>
+      <strong>Upsert or update.</strong> <code>upsert</code> inserts documents that don't exist yet.
+      <code>update</code> skips them and reports them as <code>NOT_FOUND</code>, for jobs that only enrich documents
+      another process creates.
+    </p>
+    <p><strong>Results.</strong> Single writes return a <code>WriteOutcome</code>. Batch writes return a <code>BatchWriteResult</code>:</p>
+    <div class="table-wrap">
+      <table>
+        <thead><tr><th scope="col">Field</th><th scope="col">Meaning</th></tr></thead>
+        <tbody>
+          <tr><td><code>requested()</code></td><td>Documents passed in.</td></tr>
+          <tr><td><code>inserted()</code></td><td>New documents inserted by the upsert; <code>insertedIds()</code> has their ids. One <code>insert</code> event each.</td></tr>
+          <tr><td><code>modified()</code></td><td>Existing documents that really changed. One change event each.</td></tr>
+          <tr><td><code>unchanged()</code></td><td>Existing documents left as they were. No events.</td></tr>
+          <tr><td><code>notFound()</code></td><td>Documents that didn't exist and weren't inserted, with <code>updateAll</code>.</td></tr>
+          <tr><td><code>matched()</code></td><td>Documents that already existed: <code>modified()</code> + <code>unchanged()</code>.</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <p>
+      <code>toString()</code> prints <code>requested=1000, inserted=3, updated=12, unchanged=985, notFound=0</code>,
+      and <code>plus(other)</code> adds up the results of several batches.
+    </p>
+    <p>
+      <strong>Batches.</strong> Each <code>upsertAll</code> or <code>updateAll</code> call is one bulk write.
+      Bulk writes are unordered by default: MongoDB may apply them in any order and continues after a failed
+      document. With <code>ordered(true)</code> (property <code>diffsert.ordered</code>), it stops at the first error.
+      The driver splits very large bulk writes into several commands on its own; the sync job Diffsert was extracted
+      from writes 1,000 documents per call.
+    </p>
+    <p>
+      <strong>Threads.</strong> <code>Diffsert</code> and <code>DiffsertWriter</code> are immutable and thread-safe.
+      Methods such as <code>withOptions(...)</code> and <code>withListener(...)</code> return a new instance.
+    </p>
+
+    <!-- ================================================================ changes -->
+    <h2 id="changes">What counts as a change</h2>
+    <p>
+      MongoDB compares the document Diffsert would write with the stored one. Every difference counts, except in
+      ignored fields and the version field. In replace mode, the default:
+    </p>
+    <div class="table-wrap">
+      <table>
+        <thead><tr><th scope="col">Stored</th><th scope="col">New</th><th scope="col">Result</th></tr></thead>
+        <tbody>
+          <tr><td><code>{ city: "Berlin" }</code></td><td><code>{ city: "Berlin" }</code></td><td>Unchanged</td></tr>
+          <tr><td><code>{ city: "Berlin" }</code></td><td><code>{ city: "Hamburg" }</code></td><td>Changed: <code>city</code></td></tr>
+          <tr><td><code>{ a: 1, b: 2 }</code></td><td><code>{ b: 2, a: 1 }</code></td><td>Changed: the field order differs</td></tr>
+          <tr><td><code>{ tags: ["a", "b"] }</code></td><td><code>{ tags: ["b", "a"] }</code></td><td>Changed: array order matters</td></tr>
+          <tr><td><code>{ phone: null }</code></td><td><code>{ }</code></td><td>Changed: <code>phone</code> is removed. <code>null</code> is a value, not a missing field</td></tr>
+          <tr><td><code>{ day: ISODate(…) }</code></td><td><code>{ day: "2026-10-01" }</code></td><td>Changed: a date is not a string</td></tr>
+          <tr><td><code>{ count: 1 }</code> (int)</td><td><code>{ count: 1 }</code> (long)</td><td>Changed, unless ignored, preserved or version fields are configured: then equal numbers count as unchanged, and the stored type stays</td></tr>
+          <tr><td><code>{ jobRunId: "run-1" }</code></td><td><code>{ jobRunId: "run-2" }</code></td><td>Unchanged if <code>jobRunId</code> is ignored</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <p>
+      Nested documents and arrays are compared the same way, all the way down. The change event reports them by path,
+      such as <code>address.street</code> or <code>tags.2</code>.
+    </p>
+    <p>
+      So keep what you write stable: the same field order, the same types, and <code>null</code> handled the same way
+      on every run. <a href="#troubleshooting">Troubleshooting</a> lists the usual causes when every document is
+      reported as changed.
+    </p>
+    <div class="note">
+      <p>
+        <strong>Put <code>_id</code> first.</strong> MongoDB always stores <code>_id</code> as the first field. If the
+        document you write has it anywhere else, the field order differs on every write: every write counts as a
+        change, and the event lists <code>_id</code> as updated. Spring Data's converter puts <code>_id</code> first;
+        <code>Document</code>s you build yourself need it first too.
+      </p>
+    </div>
+
+    <h3 id="modes">Replace and merge mode</h3>
+    <p>The mode decides what happens to fields that the stored document has but the new one doesn't.</p>
+    <ul>
+      <li><strong>Replace</strong> (default): the new document is the full new state. Fields missing from it are removed, and the event lists them in <code>removedFields</code>.</li>
+      <li><strong>Merge</strong> (<code>merge()</code>, property <code>diffsert.mode: merge</code>): the new document's fields are set on top of the stored document. Fields only the stored document has are kept.</li>
+    </ul>
+    <div class="code">
+      <div class="bar">one write, both modes</div>
+<pre><code><span class="c">// stored, creditLimit is written by the billing service</span>
+{ _id: <span class="s">"c1"</span>, name: <span class="s">"Acme"</span>, city: <span class="s">"Berlin"</span>, creditLimit: 5000 }
+<span class="c">// new</span>
+{ _id: <span class="s">"c1"</span>, name: <span class="s">"Acme"</span>, city: <span class="s">"Hamburg"</span> }
+
+<span class="c">// replace: updatedFields { city }, removedFields [creditLimit]</span>
+{ _id: <span class="s">"c1"</span>, name: <span class="s">"Acme"</span>, city: <span class="s">"Hamburg"</span> }
+<span class="c">// merge: updatedFields { city }</span>
+{ _id: <span class="s">"c1"</span>, name: <span class="s">"Acme"</span>, city: <span class="s">"Hamburg"</span>, creditLimit: 5000 }</code></pre>
+    </div>
+    <p>
+      Merge mode works on top-level fields: a nested document in the new document replaces the stored one as a whole.
+      Existing fields keep their stored position, so a different field order alone is no change. And merge mode can't
+      remove a field, because leaving a field out keeps the stored value. Use it when other processes write their own
+      top-level fields into the same documents.
+    </p>
+
+    <!-- ================================================================ ignored -->
+    <h2 id="ignored">Ignored fields</h2>
+    <p>
+      Some fields change on every run without meaning anything, such as a run id or a "synced at" time.
+      <code>ignoreForChangeDetection(...)</code> (property <code>diffsert.ignore-fields</code>) leaves them out of the
+      comparison:
+    </p>
+    <ul>
+      <li>If only ignored fields differ, nothing is written and no event is emitted. The stored document keeps its old values.</li>
+      <li>If anything else differs, the ignored fields are written along with the real changes, and appear in the event's <code>updatedFields</code> if their value changed.</li>
+    </ul>
+    <p>
+      So after a run, <code>_updatedAt</code> tells you when the document last really changed, and <code>jobRunId</code>
+      which run made that change. Neither tells you which run last saw the document. To find documents the source no
+      longer has, see <a href="#recipe-deletions">Detect records deleted at the source</a>.
+    </p>
+    <p>Ignored fields must be top-level field names: not <code>_id</code>, without dots, not starting with <code>$</code>.</p>
+
+    <h3 id="always-update">Updating a field on every write</h3>
+    <p>
+      If a field should move on every write, don't ignore it. It then counts as a change whenever its value differs,
+      and since a timestamp differs on every run, every document is written every time. Each write produces an
+      <code>update</code> event with that field, plus any real changes. You keep small update events, but lose "no
+      write, no event": consumers and the oplog see every document again.
+    </p>
+    <p>
+      With <a href="#auditing">auditing</a>, <code>@LastModifiedDate</code> fields are always ignored. To move such a
+      field on every write, drop the annotation and set the value yourself.
+    </p>
+
+    <!-- ================================================================ preserved -->
+    <h2 id="preserved">Preserved fields</h2>
+    <p>
+      <code>preserveExistingValue(...)</code> (property <code>diffsert.preserve-fields</code>) keeps the stored value
+      of a field once it has one. That's what <code>_createdAt</code> needs:
+    </p>
+    <ul>
+      <li>On insert, the new document's value is written.</li>
+      <li>After that, the stored value is kept, whatever the new document contains. A different value doesn't count as a change, so a preserved field doesn't need to be ignored as well.</li>
+      <li>If the stored document doesn't have the field yet, for example because it was written before the field existed, the new value is written. That counts as a change, so it happens once, with the next write.</li>
+      <li>Leaving the field out of the new document doesn't remove it, not even in replace mode.</li>
+    </ul>
+    <p>
+      The last point also protects fields that another process writes: in replace mode, a preserved field is never
+      removed, although your documents don't have it.
+    </p>
+
+    <!-- ================================================================ versions -->
+    <h2 id="versions">Version field <span class="since" title="Added in 0.2.0">0.2.0</span></h2>
+    <p>
+      A version field counts the real changes of a document. Configure it with <code>versionField("version")</code>
+      (property <code>diffsert.version-field</code>); entities use their <code>@Version</code> property
+      <a href="#versions-entities">automatically</a>.
+    </p>
+    <ul>
+      <li>It doesn't count as a change, and the value in the new document is ignored.</li>
+      <li>A real change sets it to the stored value + 1. The stored type is kept: an int stays an int, a long a long.</li>
+      <li>An insert, or a stored document without a version, gets the initial value: 0, as a long. <code>versionField("version", 1L)</code> starts at 1; an <code>Integer</code> initial value, such as <code>versionField("version", 0)</code>, writes ints.</li>
+      <li>A no-op leaves it as it is, including a write where only ignored fields differ.</li>
+      <li>If the stored value isn't a number, a write with a real change fails.</li>
+    </ul>
+    <div class="table-wrap">
+      <table>
+        <thead><tr><th scope="col">Write</th><th scope="col">Stored <code>version</code></th><th scope="col">Event</th></tr></thead>
+        <tbody>
+          <tr><td>First write</td><td>0</td><td><code>insert</code></td></tr>
+          <tr><td>Same data, next run</td><td>0</td><td>none</td></tr>
+          <tr><td><code>city</code> changed</td><td>1</td><td><code>update</code>: <code>city</code>, <code>jobRunId</code>, <code>_updatedAt</code>, <code>version</code></td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <h3 id="versions-entities">With <code>@Version</code> entities</h3>
+    <p>
+      For an entity with a <code>@Version</code> property, Diffsert uses that property's field as the version field and
+      starts where <code>save()</code> starts: at 0 for <code>Long</code> and <code>Integer</code>, at 1 for primitive
+      <code>long</code> and <code>int</code>. Applications that write the same documents with <code>save()</code> keep
+      working:
+    </p>
+    <ul>
+      <li>A document inserted by Diffsert isn't new for <code>save()</code>, so <code>save()</code> updates it instead of failing with a duplicate key.</li>
+      <li>Every real change by Diffsert moves the version. An application holding an older version gets an <code>OptimisticLockingFailureException</code> from <code>save()</code> instead of overwriting the change.</li>
+    </ul>
+    <p>
+      Diffsert itself doesn't check the version, like <code>MongoTemplate.updateFirst</code>: its writes always win.
+      The version of the entity you pass in is ignored, and it isn't updated after the write. A configured version
+      field that differs from the entity's <code>@Version</code> field is rejected. If the application also writes
+      with <code>save()</code>, keep the type key, see <a href="#entities">Spring Data entities</a>.
+    </p>
+
+    <!-- ================================================================ entities -->
+    <h2 id="entities">Spring Data entities</h2>
+    <p>
+      <code>Diffsert</code> converts entities with Spring Data's <code>MongoConverter</code>, like <code>save()</code>:
+      <code>@Id</code>, <code>@Field</code>, custom converters and your mapping configuration apply.
+      <code>toDocument(entity)</code> shows the document that would be written.
+    </p>
+    <ul>
+      <li><strong>Null properties are left out</strong>, as with <code>save()</code>. In replace mode, a property that becomes <code>null</code> therefore removes the stored field, which appears in <code>removedFields</code>. <code>@Field(write = Field.Write.ALWAYS)</code> writes <code>null</code> instead.</li>
+      <li><strong>The type key <code>_class</code> is removed</strong> by default, so documents don't change when you rename or move a class. Keep it with <code>withTypeKeyRemoved(false)</code> (property <code>diffsert.remove-type-key: false</code>) if you read the documents polymorphically, or if your application also writes them with <code>save()</code>. Otherwise <code>_class</code> counts as a change whenever the other side wrote last.</li>
+      <li><strong><code>Document</code>s are written as they are</strong>, without conversion. The configured options apply, but nothing is derived from annotations.</li>
+      <li><strong>One batch can mix entity types</strong> as long as they derive the same options, that is the same auditing fields and version field. Otherwise write them in separate batches.</li>
+    </ul>
+    <p>
+      <code>optionsFor(CustomerDto.class)</code> <span class="since" title="Added in 0.2.0">0.2.0</span> returns the
+      options Diffsert uses for a type: the configured ones, plus the fields derived from auditing annotations and
+      <code>@Version</code>.
+    </p>
+
+    <!-- ================================================================ auditing -->
+    <h2 id="auditing">Auditing <span class="since" title="Added in 0.2.0">0.2.0</span></h2>
+    <p>
+      Spring Data's auditing annotations record who created or changed a document, and when. With Diffsert,
+      <code>@LastModifiedDate</code> moves only when something really changed:
+    </p>
+    <div class="table-wrap">
+      <table>
+        <thead><tr><th scope="col">Annotation</th><th scope="col">Handled as</th><th scope="col">Effect</th></tr></thead>
+        <tbody>
+          <tr><td><code>@CreatedDate</code>, <code>@CreatedBy</code></td><td>Preserved field</td><td>Set when the document is inserted, then kept</td></tr>
+          <tr><td><code>@LastModifiedDate</code>, <code>@LastModifiedBy</code></td><td>Ignored field</td><td>Written only together with a real change</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <p>With the Spring Boot starter, <code>@EnableMongoAuditing</code> is all it takes:</p>
+    <div class="code">
+      <div class="bar">Order.java <button class="copy" type="button">Copy</button></div>
+<pre><code><span class="k">@Configuration</span>
+<span class="k">@EnableMongoAuditing</span>
+<span class="k">class</span> AuditingConfig {
+}
+
+<span class="k">@Document</span>(<span class="s">"orders"</span>)
+<span class="k">public record</span> Order(
+        <span class="k">@Id</span> String id,
+        String status,
+        <span class="k">@CreatedDate</span> Instant createdAt,
+        <span class="k">@LastModifiedDate</span> Instant updatedAt) {
+
+    <span class="k">static</span> Order of(String id, String status) {
+        <span class="k">return new</span> Order(id, status, <span class="k">null</span>, <span class="k">null</span>);
+    }
+}
+
+diffsert.upsertAll(orders, Order.<span class="k">class</span>);   <span class="c">// leave the audit fields null</span></code></pre>
+    </div>
+    <p>
+      The starter uses the bean <code>mongoAuditingHandler</code> that <code>@EnableMongoAuditing</code> registers;
+      a JPA auditing handler in the same application is left alone. Without Boot, pass that handler yourself:
+    </p>
+    <div class="code">
+      <div class="bar">DiffsertConfig.java <button class="copy" type="button">Copy</button></div>
+<pre><code><span class="k">@Bean</span>
+Diffsert diffsert(MongoTemplate mongoTemplate,
+        <span class="k">@Qualifier</span>(<span class="s">"mongoAuditingHandler"</span>) AuditingHandler auditingHandler) {
+    <span class="k">return new</span> Diffsert(mongoTemplate).withAuditing(auditingHandler);
+}</code></pre>
+    </div>
+    <p>What happens on a write:</p>
+    <ul>
+      <li>Diffsert can't know whether a document exists before it writes, so it marks every entity like <code>save()</code> marks a new one: created and modified fields get the current time from your <code>DateTimeProvider</code> and the user from your <code>AuditorAware</code>. Preserving and ignoring then keep the right values on the server.</li>
+      <li>Mutable entities get the values set in place. Records and other immutable classes need a wither or a single constructor, as with <code>save()</code>. A second, shorter constructor makes Spring fail with "no setter, wither or copy constructor"; use a static factory such as <code>Order.of(...)</code> instead.</li>
+      <li>With <code>setModifyOnCreation(false)</code> on the handler, Diffsert still fills in the modified fields, because it can't tell an insert from an update.</li>
+      <li>A stored document without a created date, for example from before auditing was enabled, gets the current time with its next write. That write counts as a change once.</li>
+      <li>Only top-level properties are supported: an entity with auditing annotations inside an embedded object is rejected.</li>
+    </ul>
+    <p>
+      Auditing doesn't apply to <code>Document</code>s. To get the same behavior, set the fields yourself and configure
+      <code>_updatedAt</code> as ignored and <code>_createdAt</code> as preserved, as in
+      <a href="#start">Getting started</a>. For a <code>@LastModifiedDate</code> that should move on every write, see
+      <a href="#always-update">Updating a field on every write</a>.
+    </p>
+
+    <!-- ================================================================ boot -->
+    <h2 id="boot">Spring Boot starter</h2>
+    <p>The starter auto-configures a <code>Diffsert</code> bean when the application has a <code>MongoOperations</code> bean, such as Boot's <code>MongoTemplate</code>. Properties:</p>
+    <div class="table-wrap">
+      <table>
+        <thead><tr><th scope="col">Property</th><th scope="col">Default</th><th scope="col">Meaning</th></tr></thead>
+        <tbody>
+          <tr><td><code>diffsert.mode</code></td><td><code>replace</code></td><td><code>replace</code> or <code>merge</code>, see <a href="#modes">Replace and merge mode</a></td></tr>
+          <tr><td><code>diffsert.ignore-fields</code></td><td>none</td><td>Fields that alone don't count as a change, see <a href="#ignored">Ignored fields</a></td></tr>
+          <tr><td><code>diffsert.preserve-fields</code></td><td>none</td><td>Fields whose stored value is kept, see <a href="#preserved">Preserved fields</a></td></tr>
+          <tr><td><code>diffsert.version-field</code> <span class="since" title="Added in 0.2.0">0.2.0</span></td><td>none</td><td>A field that counts real changes, see <a href="#versions">Version field</a></td></tr>
+          <tr><td><code>diffsert.ordered</code></td><td><code>false</code></td><td>Ordered bulk writes stop at the first error</td></tr>
+          <tr><td><code>diffsert.remove-type-key</code></td><td><code>true</code></td><td>Remove <code>_class</code> from converted entities</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <ul>
+      <li><strong>Options in code:</strong> define a <code>DiffsertOptions</code> bean. It replaces all option properties above; only <code>remove-type-key</code> still applies.</li>
+      <li><strong>Listeners:</strong> every <code>DiffsertListener</code> bean is called after each write, in <code>@Order</code>. A failing listener is logged as a warning and affects neither the write, the caller nor the other listeners.</li>
+      <li><strong>Metrics:</strong> with Micrometer and a <code>MeterRegistry</code>, the counter <code>diffsert.documents</code> counts written documents, tagged with <code>collection</code> and <code>outcome</code> (<code>inserted</code>, <code>updated</code>, <code>unchanged</code>, <code>not_found</code>).</li>
+      <li><strong>Auditing</strong> <span class="since" title="Added in 0.2.0">0.2.0</span>: with <code>@EnableMongoAuditing</code>, auditing is handled automatically.</li>
+      <li><strong>Your own bean:</strong> a <code>Diffsert</code> bean of your own replaces the auto-configured one, including listeners and metrics. Attach them with <code>withListener(...)</code>, or define a <code>DiffsertOptions</code> bean instead.</li>
+    </ul>
+    <div class="code">
+      <div class="bar">DiffsertConfig.java <button class="copy" type="button">Copy</button></div>
+<pre><code><span class="k">@Bean</span>
+DiffsertOptions diffsertOptions() {
+    <span class="k">return</span> DiffsertOptions.builder()
+            .ignoreForChangeDetection(<span class="s">"jobRunId"</span>, <span class="s">"_updatedAt"</span>)
+            .preserveExistingValue(<span class="s">"_createdAt"</span>)
+            .build();
+}
+
+<span class="k">@Bean</span>
+DiffsertListener logWrites() {
+    <span class="k">return</span> (collection, result) -&gt; log.info(<span class="s">"{}: {}"</span>, collection, result);
+}</code></pre>
+    </div>
+
+    <!-- ================================================================ listeners -->
+    <h2 id="listeners">Listeners and metrics</h2>
+    <p>
+      A <code>DiffsertListener</code> is called after every write, with the collection name and a
+      <code>BatchWriteResult</code>. A single write is reported as a result with <code>requested = 1</code>.
+    </p>
+    <div class="code">
+      <div class="bar">Java <button class="copy" type="button">Copy</button></div>
+<pre><code>Diffsert logging = diffsert.withListener((collection, result) -&gt;
+        log.info(<span class="s">"{}: {}"</span>, collection, result));
+<span class="c">// customers: requested=1000, inserted=3, updated=12, unchanged=985, notFound=0</span></code></pre>
+    </div>
+    <ul>
+      <li>It runs on the writing thread, after the write.</li>
+      <li>If a bulk write fails, the listener first receives the result of the documents that were written, then the exception is thrown.</li>
+      <li><code>withListener(...)</code> replaces the current listener. To notify several, call them from one listener; the starter does that for listener beans.</li>
+      <li>Outside the starter, an exception thrown by a listener reaches the caller, although the write has already happened.</li>
+      <li>Write models from <code>toWriteModels(...)</code> aren't reported, because you execute them.</li>
+      <li>In a transaction, listeners are called when the write runs, so they also count writes that are rolled back later.</li>
+    </ul>
+    <p>
+      With the starter and Micrometer, <code>DiffsertMetrics</code> is such a listener; you can also attach it yourself
+      with <code>withListener(new DiffsertMetrics(meterRegistry))</code>.
+    </p>
+
+    <!-- ================================================================ transactions -->
+    <h2 id="transactions">Transactions and bulk writes</h2>
+    <p><code>Diffsert</code> writes go through <code>MongoOperations</code>, so they join a Spring-managed transaction like any template operation:</p>
+    <div class="code">
+      <div class="bar">OrderImport.java <button class="copy" type="button">Copy</button></div>
+<pre><code><span class="k">@Transactional</span>
+<span class="k">void</span> importOrders(List&lt;Order&gt; orders, List&lt;OrderLine&gt; lines) {
+    diffsert.upsertAll(orders, Order.<span class="k">class</span>);
+    diffsert.upsertAll(lines, OrderLine.<span class="k">class</span>);
+}</code></pre>
+    </div>
+    <ul>
+      <li>This needs a <code>MongoTransactionManager</code> that uses the same <code>MongoDatabaseFactory</code> as the template.</li>
+      <li>Change events appear when the transaction commits, still as deltas. A rollback produces none.</li>
+      <li>Listeners and metrics count the writes when they run, including writes that are rolled back.</li>
+    </ul>
+    <p>
+      Without Spring, or to combine Diffsert's writes with other operations in one bulk write, build the write models
+      and execute them yourself:
+    </p>
+    <div class="code">
+      <div class="bar">Java <button class="copy" type="button">Copy</button></div>
+<pre><code>List&lt;WriteModel&lt;Document&gt;&gt; models = <span class="k">new</span> ArrayList&lt;&gt;();
+models.addAll(writer.toWriteModels(documents, <span class="k">true</span>));
+models.add(<span class="k">new</span> DeleteManyModel&lt;&gt;(Filters.eq(<span class="s">"status"</span>, <span class="s">"obsolete"</span>)));
+
+<span class="k">try</span> (ClientSession session = client.startSession()) {
+    session.withTransaction(() -&gt; customers.bulkWrite(session, models));
+}</code></pre>
+    </div>
+    <p>
+      <code>buildPipeline(document)</code> returns the update pipeline for one document, for an
+      <code>updateOne</code> of your own with the filter <code>{ _id: &lt;the document's _id&gt; }</code>.
+    </p>
+
+    <!-- ================================================================ events -->
+    <h2 id="events">Change streams and Debezium</h2>
+    <div class="table-wrap">
+      <table>
+        <thead><tr><th scope="col">Outcome</th><th scope="col">Change event</th></tr></thead>
+        <tbody>
+          <tr><td><code>INSERTED</code></td><td><code>insert</code>, with the full document</td></tr>
+          <tr><td><code>UPDATED</code></td><td><code>update</code> with <code>updatedFields</code>, <code>removedFields</code> and <code>truncatedArrays</code>; for small documents sometimes <code>replace</code></td></tr>
+          <tr><td><code>UNCHANGED</code></td><td>none</td></tr>
+          <tr><td><code>NOT_FOUND</code></td><td>none</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <div class="code">
+      <div class="bar">update event, city changed</div>
+<pre><code>{ <span class="k">operationType</span>: <span class="s">"update"</span>,
+  <span class="k">documentKey</span>: { <span class="k">_id</span>: <span class="s">"c1"</span> },
+  <span class="k">updateDescription</span>: {
+    <span class="k">updatedFields</span>: { <span class="k">city</span>: <span class="s">"Hamburg"</span>, <span class="k">jobRunId</span>: <span class="s">"run-2"</span>,
+                     <span class="k">_updatedAt</span>: ISODate(<span class="s">"2026-10-08T12:00Z"</span>) },
+    <span class="k">removedFields</span>: [],
+    <span class="k">truncatedArrays</span>: [] } }</code></pre>
+    </div>
+    <ul>
+      <li><strong>Paths:</strong> nested fields and array elements are reported by path, such as <code>address.street</code> or <code>tags.2</code>. A shortened array appears in <code>truncatedArrays</code>.</li>
+      <li><strong>Replace events still happen.</strong> MongoDB logs a delta only when it is smaller than the new document. For very small documents, or when almost every field changes, the event is a <code>replace</code>. In a test with ten short fields, changing nine still gave an <code>update</code>. Treat a <code>replace</code> as "anything may have changed".</li>
+      <li><strong>Full documents are read later.</strong> With <code>fullDocument: "updateLookup"</code>, the full document in an update event is read when the event is read, not when the write happened, so it can already contain later changes.</li>
+    </ul>
+
+    <h3 id="react">Reacting to specific fields</h3>
+    <p>A consumer that cares about certain fields checks the event's paths, and treats inserts and replaces as changes to everything:</p>
+    <div class="code">
+      <div class="bar">AddressListener.java <button class="copy" type="button">Copy</button></div>
+<pre><code><span class="k">switch</span> (event.getOperationType()) {
+    <span class="k">case</span> UPDATE -&gt; {
+        UpdateDescription update = event.getUpdateDescription();
+        Set&lt;String&gt; paths = <span class="k">new</span> HashSet&lt;&gt;(update.getUpdatedFields().keySet());
+        paths.addAll(update.getRemovedFields());
+        <span class="k">if</span> (paths.stream().anyMatch(p -&gt; p.equals(<span class="s">"address"</span>)
+                || p.startsWith(<span class="s">"address."</span>))) {
+            onAddressChanged(event.getDocumentKey());
+        }
+    }
+    <span class="k">case</span> INSERT, REPLACE -&gt; onAddressChanged(event.getDocumentKey());
+    <span class="k">default</span> -&gt; { }
+}</code></pre>
+    </div>
+
+    <h3 id="debezium">With Debezium</h3>
+    <p>Debezium's MongoDB connector reports both <code>update</code> and <code>replace</code> events as <code>op: "u"</code>. What else an event carries depends on its <code>capture.mode</code>:</p>
+    <div class="table-wrap">
+      <table>
+        <thead><tr><th scope="col">Capture mode</th><th scope="col">Update event (Diffsert)</th><th scope="col">Replace event</th></tr></thead>
+        <tbody>
+          <tr><td><code>change_streams_update_full</code> (default)</td><td><code>updateDescription</code>, plus the full document in <code>after</code></td><td>Full document in <code>after</code>, no <code>updateDescription</code></td></tr>
+          <tr><td><code>change_streams</code></td><td><code>updateDescription</code> only, no <code>after</code></td><td>Full document in <code>after</code>, no <code>updateDescription</code></td></tr>
+          <tr><td><code>*_with_pre_image</code> (MongoDB 6.0+)</td><td>Additionally the old document in <code>before</code></td><td>Additionally <code>before</code></td></tr>
+        </tbody>
+      </table>
+    </div>
+    <ul>
+      <li><strong>Unchanged documents produce no event</strong> in any mode, because nothing is written.</li>
+      <li><strong>Read changes from <code>updateDescription</code>, not from <code>after</code>.</strong> In the default mode, <code>after</code> is the whole document, so it doesn't show what changed. Debezium reads it from the collection when it processes the event, so it can already contain later changes, or be <code>null</code> if the document was deleted in the meantime, unless you set <code>capture.mode.full.update.type=post_image</code> (MongoDB 6.0+).</li>
+      <li><strong>No <code>updateDescription</code> means a replace:</strong> treat every field as possibly changed, or compare <code>before</code> and <code>after</code> in a pre-image mode.</li>
+      <li><strong>Check <code>change_streams</code> pipelines before switching to Diffsert.</strong> With <code>save()</code>, every event carried the full document, even in this mode. With Diffsert, update events have no <code>after</code>, and <code>ExtractNewDocumentState</code> emits only <code>_id</code> and the changed fields, nested ones as dotted keys. A sink that expects whole documents would write partial ones.</li>
+      <li><strong><code>ExtractNewDocumentState</code> keeps only <code>after</code></strong> in the default mode. If consumers need the changed fields, copy them into the flattened record with the transform's <code>add.fields</code> option.</li>
+    </ul>
+
+    <!-- ================================================================ errors -->
+    <h2 id="errors">Errors and retries</h2>
+    <h3 id="errors-rejected">Rejected before writing</h3>
+    <p>These problems are found before anything is written, and throw an <code>IllegalArgumentException</code>:</p>
+    <div class="table-wrap msgs">
+      <table>
+        <thead><tr><th scope="col">Message starts with</th><th scope="col">Cause</th></tr></thead>
+        <tbody>
+          <tr><td><code>entity has no id</code>, <code>document has no _id</code></td><td>The id is missing or <code>null</code>.</td></tr>
+          <tr><td><code>ignoredFields: only top-level field names other than _id are supported</code></td><td>The same for <code>preservedFields</code> and <code>versionField</code>: a dotted name, <code>_id</code>, a name starting with <code>$</code>, or a blank one.</td></tr>
+          <tr><td><code>versionField '…' must not be an ignored or preserved field as well</code></td><td>One field configured twice.</td></tr>
+          <tr><td><code>auditing field '…' of … is nested</code></td><td>An auditing annotation inside an embedded object. <span class="since">0.2.0</span></td></tr>
+          <tr><td><code>entities in one batch must have the same auditing and version fields</code></td><td>Entity types with different derived options in one batch. <span class="since">0.2.0</span></td></tr>
+          <tr><td><code>version field '…' is configured, but …</code></td><td>The configured version field differs from the entity's <code>@Version</code> field. <span class="since">0.2.0</span></td></tr>
+        </tbody>
+      </table>
+    </div>
+    <h3 id="errors-failed">Failed writes</h3>
+    <p>Driver exceptions are thrown as they are, not translated into Spring's <code>DataAccessException</code>:</p>
+    <ul>
+      <li>A single write throws a <code>MongoWriteException</code>, for example for a duplicate key in a unique index.</li>
+      <li>A batch throws a <code>MongoBulkWriteException</code>. <code>getWriteErrors()</code> lists each failed document with its index in the batch. Unordered batches, the default, still write all other documents; ordered ones stop at the first error.</li>
+      <li>Documents written before or besides the failed ones are reported to listeners and metrics before the exception is thrown.</li>
+    </ul>
+    <h3 id="retries">Retries are safe</h3>
+    <p>
+      Writing the same document again changes nothing: the second write is a no-op, with no event and no new version.
+      After a failure, you can write the whole batch again; only what is still missing or different is written.
+    </p>
+
+    <!-- ================================================================ recipes -->
+    <h2 id="recipes">Recipes</h2>
+
+    <h3 id="recipe-jackson">Write Documents built with Jackson</h3>
+    <p>
+      If you map DTOs to <code>Document</code>s yourself instead of using Spring Data's mapping, write them with
+      <code>DiffsertWriter</code>, or with <code>Diffsert</code>, which passes <code>Document</code>s through. For a
+      plain DTO such as <code>record CustomerDto(String id, String name, String city)</code>:
+    </p>
+    <div class="code">
+      <div class="bar">CustomerDocuments.java <button class="copy" type="button">Copy</button></div>
+<pre><code><span class="k">private final</span> ObjectMapper mapper = <span class="k">new</span> ObjectMapper();
+
+Document toDocument(CustomerDto dto, String jobRunId, Date now) {
+    Document doc = <span class="k">new</span> Document(<span class="s">"_id"</span>, dto.id());   <span class="c">// _id first</span>
+    doc.putAll(mapper.convertValue(dto, <span class="k">new</span> TypeReference&lt;Map&lt;String, Object&gt;&gt;() {}));
+    doc.remove(<span class="s">"id"</span>);
+    <span class="k">return</span> doc.append(<span class="s">"jobRunId"</span>, jobRunId)
+            .append(<span class="s">"_createdAt"</span>, now)
+            .append(<span class="s">"_updatedAt"</span>, now);
+}</code></pre>
+    </div>
+    <ul>
+      <li><strong><code>_id</code> first.</strong> MongoDB stores <code>_id</code> as the first field; anywhere else, every write counts as a change.</li>
+      <li><strong>Stable field order.</strong> Jackson writes the properties of a class in the same order every time; <code>@JsonPropertyOrder</code> makes the order explicit. Don't build documents from a <code>HashMap</code> or a <code>HashSet</code>: their order can differ between runs.</li>
+      <li><strong>Dates.</strong> <code>convertValue</code> turns <code>java.time</code> values into numbers or strings, depending on the <code>ObjectMapper</code>'s configuration, not into BSON dates. Set date fields yourself, as <code>Date</code> or <code>Instant</code>.</li>
+      <li><strong>Nulls.</strong> Decide whether null properties are written as <code>null</code> or left out (<code>@JsonInclude(NON_NULL)</code>), and keep it that way: switching changes every document that has such a field.</li>
+      <li><strong>Numbers.</strong> Keep numeric types stable. <code>Document.parse(json)</code>, for example, picks int, long or double by value, so a number that grows past the int range changes its type.</li>
+    </ul>
+
+    <h3 id="recipe-deletions">Detect records deleted at the source</h3>
+    <p>Unchanged documents aren't written, so "not written in this run" doesn't mean "gone at the source". Collect the ids you write, and delete the rest after the run:</p>
+    <div class="code">
+      <div class="bar">CustomerSync.java <button class="copy" type="button">Copy</button></div>
+<pre><code>Set&lt;String&gt; seen = <span class="k">new</span> HashSet&lt;&gt;();
+<span class="k">for</span> (List&lt;CustomerDto&gt; batch : batches) {
+    diffsert.upsertAll(batch, CustomerDto.<span class="k">class</span>);
+    batch.forEach(customer -&gt; seen.add(customer.id()));
+}
+<span class="c">// only after the whole run succeeded</span>
+mongoTemplate.remove(Query.query(Criteria.where(<span class="s">"_id"</span>).nin(seen)), CustomerDto.<span class="k">class</span>);</code></pre>
+    </div>
+    <p>
+      Delete only after a complete, successful run: after a failed one, the set is incomplete. For large collections,
+      store the ids in a separate collection instead of one big <code>$nin</code> query.
+    </p>
+
+    <h3 id="recipe-from-save">Switch from <code>save()</code></h3>
+    <ul>
+      <li><strong>Expect one round of updates.</strong> The first run updates every document whose stored form differs from what Diffsert writes, typically because <code>_class</code> is removed, and emits one event for each. After that, only real changes produce events. Run it once before consumers rely on the new behavior, or keep the type key.</li>
+      <li><strong>Update consumers.</strong> Events change from <code>replace</code> with the full document to <code>update</code> with <code>updateDescription</code>. Check consumers that read the full document, and Debezium setups, see <a href="#debezium">With Debezium</a>.</li>
+      <li><strong>Ids:</strong> <code>save()</code> generates missing ids, Diffsert requires them.</li>
+      <li><strong>Versioned entities:</strong> see <a href="#versions-entities">With <code>@Version</code> entities</a>.</li>
+    </ul>
+
+    <h3 id="recipe-merge">Let two jobs write the same documents</h3>
+    <p>When two jobs fill different top-level fields of the same documents, use merge mode for both, so that neither removes the other's fields:</p>
+    <div class="code">
+      <div class="bar">Java <button class="copy" type="button">Copy</button></div>
+<pre><code><span class="c">// the CRM job writes name and city, the billing job creditLimit</span>
+Diffsert merging = diffsert.withOptions(
+        diffsert.options().toBuilder().merge().build());
+merging.upsertAll(crmCustomers, <span class="s">"customers"</span>);</code></pre>
+    </div>
+    <p>A field that both jobs write with different values changes back and forth, and produces an event every time.</p>
+
+    <h3 id="recipe-verify">Check which events your writes produce</h3>
+    <p>To see what a write emits, for example in an integration test, open a change stream before writing and insert a marker document afterwards. Every event before the marker's belongs to your write:</p>
+    <div class="code">
+      <div class="bar">Java <button class="copy" type="button">Copy</button></div>
+<pre><code>BsonString marker = <span class="k">new</span> BsonString(<span class="s">"marker-"</span> + UUID.randomUUID());
+List&lt;ChangeStreamDocument&lt;Document&gt;&gt; events = <span class="k">new</span> ArrayList&lt;&gt;();
+<span class="k">try</span> (var cursor = collection.watch().cursor()) {
+    diffsert.upsertAll(customers, CustomerDto.<span class="k">class</span>);
+    collection.insertOne(<span class="k">new</span> Document(<span class="s">"_id"</span>, marker));
+    ChangeStreamDocument&lt;Document&gt; event;
+    <span class="k">while</span> (!marker.equals((event = cursor.next()).getDocumentKey().get(<span class="s">"_id"</span>))) {
+        events.add(event);
+    }
+}
+collection.deleteOne(<span class="k">new</span> Document(<span class="s">"_id"</span>, marker));</code></pre>
+    </div>
+    <p>This needs a replica set; with Testcontainers, start <code>MongoDBContainer</code> with <code>withReplicaSet()</code>.</p>
+
+    <!-- ================================================================ troubleshooting -->
+    <h2 id="troubleshooting">Troubleshooting</h2>
+    <h3 id="ts-updated">Every document is reported as <code>UPDATED</code></h3>
+    <p>
+      Look at the events first: <code>updatedFields</code> and <code>removedFields</code> name exactly the fields that
+      differed. Or compare <code>diffsert.toDocument(entity).toJson()</code> with the stored document. Common causes:
+    </p>
+    <ul>
+      <li>A field that changes on every run isn't ignored: a timestamp, a run id, a generated value.</li>
+      <li><code>_id</code> isn't the first field of the document; the event then lists <code>_id</code>.</li>
+      <li><code>_class</code>: the application writes it with <code>save()</code>, and Diffsert removes it, or the other way round.</li>
+      <li>The field order changed: a reordered DTO, a different mapping, a <code>HashMap</code>.</li>
+      <li>The array order changes: lists built from a <code>HashSet</code>, or source data without a fixed sort order.</li>
+      <li>The types differ from what's stored: int and long, double and decimal, string and date. Without ignored, preserved or version fields, a numeric type alone counts too.</li>
+      <li><code>null</code> and missing: the stored document has the field as <code>null</code> and the new one leaves it out, or the other way round.</li>
+    </ul>
+    <p>
+      After you change the mapping, the first run updates every affected document once; that's expected. If the same
+      documents are updated on every run, one of the causes above is at work.
+    </p>
+    <h3 id="ts-unchanged">A change wasn't written</h3>
+    <ul>
+      <li>Only ignored fields differed, which is the point of ignoring them.</li>
+      <li>The field is preserved: the stored value wins.</li>
+      <li>Merge mode: fields left out of the new document are kept.</li>
+      <li>Only a numeric type changed, such as <code>1</code> to <code>1L</code>, while ignored, preserved or version fields are configured. Equal numbers then count as unchanged.</li>
+      <li><code>update</code> and <code>updateAll</code> don't insert; look for <code>NOT_FOUND</code>.</li>
+    </ul>
+    <h3 id="ts-replace">Replace events still appear</h3>
+    <p>For small documents, or when almost every field changes, MongoDB logs a full replacement. That's expected; consumers should handle <code>replace</code> events.</p>
+    <h3 id="ts-none">No change events at all</h3>
+    <ul>
+      <li>Change streams need a replica set; a standalone server has none.</li>
+      <li><code>UNCHANGED</code> writes emit nothing, by design.</li>
+      <li>In a transaction, events appear only after the commit.</li>
+    </ul>
+
+    <!-- ================================================================ limits -->
+    <h2 id="limits">Limitations</h2>
+    <ul>
+      <li>Ignored, preserved and version fields are top-level fields; nested ones such as <code>meta.updatedAt</code> aren't supported.</li>
+      <li>Documents are matched by <code>_id</code> only.</li>
+      <li>Sharded collections aren't tested. MongoDB requires the full shard key in the filter of an upsert, so upserts by <code>_id</code> work only where <code>_id</code> is the shard key.</li>
+      <li>Synchronous driver only; there is no reactive API.</li>
+      <li>Spring Boot 4 and Spring Data MongoDB 2025.1; older Spring versions aren't supported.</li>
+      <li>MongoDB 5.0 or later.</li>
+    </ul>
+  </main>
+</div>
+
+<footer>
+  <div class="wrap">
+    <span><span class="hl">diff</span>sert · MIT License · © 2026 Daniel Bartl</span>
+    <span class="links">
+      <a href="./">Overview</a>
+      <a href="https://github.com/danielbartl/diffsert">Source</a>
+      <a href="https://github.com/danielbartl/diffsert/blob/main/README.md">README</a>
+      <a href="https://github.com/danielbartl/diffsert/actions/workflows/ci.yml">CI</a>
+    </span>
+  </div>
+</footer>
+
+<script src="site.js"></script>
+<script>
+(function () {
+  // ---------- table of contents: open beside the text, collapsed above it on narrow screens ----------
+  var toc = document.getElementById("toc");
+  var wide = window.matchMedia("(min-width: 961px)");
+  function syncToc() { toc.open = wide.matches; }
+  syncToc();
+  wide.addEventListener("change", syncToc);
+  toc.addEventListener("click", function (e) {
+    if (e.target.closest("a") && !wide.matches) toc.open = false;
+  });
+
+  // ---------- link icons on headings ----------
+  document.querySelectorAll(".doc h2[id], .doc h3[id]").forEach(function (h) {
+    var a = document.createElement("a");
+    a.className = "anchor";
+    a.href = "#" + h.id;
+    a.setAttribute("aria-label", "Link to this section");
+    a.textContent = "#";
+    h.appendChild(a);
+  });
+
+  // ---------- highlight the section being read ----------
+  var links = {};
+  toc.querySelectorAll("a").forEach(function (a) { links[a.getAttribute("href").slice(1)] = a; });
+  var heads = Array.prototype.slice.call(document.querySelectorAll(".doc h2[id]"));
+  var current = null;
+  function spy() {
+    var active = heads[0];
+    for (var i = 0; i < heads.length; i++) {
+      if (heads[i].getBoundingClientRect().top < 140) active = heads[i]; else break;
+    }
+    if (active === current) return;
+    if (current) links[current.id].removeAttribute("aria-current");
+    links[active.id].setAttribute("aria-current", "true");
+    current = active;
+  }
+  var pending = false;
+  window.addEventListener("scroll", function () {
+    if (pending) return;
+    pending = true;
+    requestAnimationFrame(function () { pending = false; spy(); });
+  }, { passive: true });
+  spy();
+})();
+</script>
+</body>
+</html>
