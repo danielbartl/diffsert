@@ -44,6 +44,9 @@ so downstream logic fired for every document even when nothing relevant changed.
 - Tests: `DiffsertWriterIT` (core, Documents) and `DiffsertIT` (spring-data, entities) assert the actual change stream
   events per scenario: insert, ignored-only no-op, changed fields only + preserved `_createdAt` + stable field order,
   removed fields, mixed batch, update never inserts, merge mode, no-options writer, plus listener reporting.
+  `DiffsertIT` also covers Spring-managed transactions (`MongoTransactionManager` sharing the template's factory):
+  writes join the transaction (events carry a `txnNumber`, delta still applies), rollback leaves no events, and
+  listeners are called at write time, so they also see rolled-back writes.
   Starter: `DiffsertAutoConfigurationTest` (context runner, no server) and `DiffsertAutoConfigurationIT`.
   `TestMongo` (module `diffsert-test-support`, package `dev.jbaby.diffsert.testsupport`, never published) holds
   the container setup and the sentinel-based `eventsDuring` helper.

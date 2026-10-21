@@ -26,6 +26,10 @@ import dev.jbaby.diffsert.WriteOutcome;
  * converters apply as with {@code save()}. Every entity must have an id. {@link Document}s are written as they are.
  * Spring Data's type key (usually {@code _class}) is removed by default, see {@link #withTypeKeyRemoved(boolean)}.
  * <p>
+ * Writes go through {@link MongoOperations#getCollection(String)}, so they join a Spring-managed transaction
+ * ({@code MongoTransactionManager}) like any template operation. Listeners are called when a write runs, not when the
+ * transaction commits.
+ * <p>
  * Driver exceptions such as {@link com.mongodb.MongoBulkWriteException} are thrown as-is (not translated to Spring's
  * {@code DataAccessException}), so failed operations can be inspected via {@code getWriteErrors()}.
  * <p>

@@ -150,8 +150,10 @@ A `DiffsertListener` (`withListener(...)`, or any listener bean with the starter
 Micrometer, the starter counts written documents as `diffsert.documents`, tagged with `collection` and `outcome`
 (`inserted`, `updated`, `unchanged`, `not_found`).
 
-For sessions, transactions or mixed bulk writes, `toWriteModels(...)` returns the write models without executing
-them, and `buildPipeline(...)` the pipeline for a single document.
+`Diffsert` writes join a Spring-managed transaction (`MongoTransactionManager`, e.g. with `@Transactional`) like any
+`MongoTemplate` operation. Listeners and metrics are called when a write runs, so they also count writes that are
+rolled back later. For sessions without Spring, or mixed bulk writes, `toWriteModels(...)` returns the write models
+without executing them, and `buildPipeline(...)` the pipeline for a single document.
 
 ## With Debezium
 

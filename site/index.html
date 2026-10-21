@@ -747,7 +747,8 @@ diffsert.upsertAll(dtos, <span class="s">"customers"</span>);         <span clas
           <ul>
             <li>The type key <code>_class</code> is removed by default; <code>withTypeKeyRemoved(false)</code> keeps it.</li>
             <li><code>update</code> and <code>updateAll</code> never insert.</li>
-            <li><code>toWriteModels(...)</code> returns the write models without executing them, for sessions, transactions or your own <code>bulkWrite</code>.</li>
+            <li>Writes join a Spring-managed transaction (<code>MongoTransactionManager</code>, e.g. with <code>@Transactional</code>). Listeners and metrics are called when a write runs, so they also count writes that are rolled back later.</li>
+            <li><code>toWriteModels(...)</code> returns the write models without executing them, for sessions without Spring or your own <code>bulkWrite</code>.</li>
           </ul>
         </div>
       </div>

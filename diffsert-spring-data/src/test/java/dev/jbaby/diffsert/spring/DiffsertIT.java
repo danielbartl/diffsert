@@ -1,6 +1,7 @@
 package dev.jbaby.diffsert.spring;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.time.Instant;
@@ -16,8 +17,11 @@ import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.data.annotation.Id;
+import org.springframework.data.mongodb.MongoTransactionManager;
 import org.springframework.data.mongodb.core.MongoTemplate;
+import org.springframework.data.mongodb.core.SimpleMongoClientDatabaseFactory;
 import org.springframework.data.mongodb.core.mapping.Field;
+import org.springframework.transaction.support.TransactionTemplate;
 import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
 import org.testcontainers.mongodb.MongoDBContainer;
@@ -45,6 +49,7 @@ class DiffsertIT {
 
     static MongoClient client;
     static MongoTemplate template;
+    static TransactionTemplate transactions;
 
     MongoCollection<Document> collection;
     Diffsert writer;
@@ -81,7 +86,10 @@ class DiffsertIT {
     @BeforeAll
     static void connect() {
         client = MongoClients.create(MONGO.getReplicaSetUrl("test"));
-        template = new MongoTemplate(client, "test");
+        // template and transaction manager must share the factory, as in a Spring Boot application
+        var factory = new SimpleMongoClientDatabaseFactory(client, "test");
+        template = new MongoTemplate(factory);
+        transactions = new TransactionTemplate(new MongoTransactionManager(factory));
     }
 
     @AfterAll
@@ -232,6 +240,46 @@ class DiffsertIT {
         assertEquals(List.of(
                 "customers: requested=1, inserted=1, updated=0, unchanged=0, notFound=0",
                 "customers: requested=2, inserted=1, updated=0, unchanged=1, notFound=0"), reported);
+    }
+
+    @Test
+    void joinsSpringManagedTransaction() {
+        Customer unchanged = customer("c1", "Acme", "Berlin");
+        Customer changed = customer("c2", "Globex", "Munich");
+        writer.upsertAll(List.of(unchanged, changed), Customer.class);
+
+        var events = eventsDuring(() -> transactions.executeWithoutResult(status -> {
+            writer.upsertAll(List.of(unchanged.nextRun(), changed.nextRun().withCity("Cologne")), Customer.class);
+            writer.upsert(customer("c3", "Initech", "Frankfurt"));
+            assertEquals(2, collection.countDocuments(), "writes must not be visible before the commit");
+        }));
+
+        assertEquals(2, events.size());
+        events.forEach(ev -> assertNotNull(ev.getTxnNumber(), "event must come from the transaction: " + ev));
+        assertEquals(OperationType.UPDATE, events.get(0).getOperationType());
+        assertEquals(Set.of("city", "jobRunId", "_updatedAt"),
+                events.get(0).getUpdateDescription().getUpdatedFields().keySet());
+        assertEquals(OperationType.INSERT, events.get(1).getOperationType());
+        assertEquals(3, collection.countDocuments());
+    }
+
+    @Test
+    void rollbackDiscardsWritesButListenersHaveSeenThem() {
+        Customer a = customer("c1", "Acme", "Berlin");
+        writer.upsert(a);
+        List<String> reported = new ArrayList<>();
+        Diffsert listening = writer.withListener((collectionName, result) -> reported.add(result.toString()));
+
+        var events = eventsDuring(() -> transactions.executeWithoutResult(status -> {
+            listening.upsertAll(List.of(a.withCity("Hamburg"), customer("c2", "Globex", "Munich")), Customer.class);
+            status.setRollbackOnly();
+        }));
+
+        assertEquals(List.of(), events);
+        assertEquals("Berlin", stored("c1").getString("city"));
+        assertEquals(1, collection.countDocuments());
+        assertEquals(List.of("requested=2, inserted=1, updated=1, unchanged=0, notFound=0"), reported,
+                "listeners are called when a write runs, not when the transaction commits");
     }
 
     // ---------------------------------------------------------------- helpers
