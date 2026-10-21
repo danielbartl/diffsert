@@ -2,6 +2,7 @@ package dev.jbaby.diffsert.boot;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
+import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Set;
@@ -12,7 +13,13 @@ import org.springframework.boot.test.context.FilteredClassLoader;
 import org.springframework.boot.test.context.runner.ApplicationContextRunner;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
+import org.springframework.data.annotation.Id;
+import org.springframework.data.annotation.LastModifiedDate;
+import org.springframework.data.auditing.AuditingHandler;
+import org.springframework.data.mongodb.config.EnableMongoAuditing;
 import org.springframework.data.mongodb.core.MongoTemplate;
+import org.springframework.data.mongodb.core.mapping.Field;
+import org.springframework.data.mongodb.core.mapping.MongoMappingContext;
 
 import com.mongodb.client.MongoClient;
 import com.mongodb.client.MongoClients;
@@ -54,6 +61,21 @@ class DiffsertAutoConfigurationTest {
         }
     }
 
+    @org.springframework.data.mongodb.core.mapping.Document("customers")
+    record AuditedCustomer(@Id String id, String name, @LastModifiedDate @Field("_updatedAt") Instant updatedAt) {
+    }
+
+    /** {@code @EnableMongoAuditing} needs the mapping context bean that Boot's auto-configuration provides. */
+    @Configuration(proxyBeanMethods = false)
+    @EnableMongoAuditing
+    static class MongoAuditingConfig {
+
+        @Bean
+        MongoMappingContext mongoMappingContext() {
+            return new MongoMappingContext();
+        }
+    }
+
     @Test
     void createsDiffsertWithDefaults() {
         runner.withUserConfiguration(MongoConfig.class).run(context -> {
@@ -90,6 +112,39 @@ class DiffsertAutoConfigurationTest {
                 .withBean(DiffsertOptions.class, () -> custom)
                 .withPropertyValues("diffsert.ignore-fields=jobRunId")
                 .run(context -> assertThat(context.getBean(Diffsert.class).options()).isEqualTo(custom));
+    }
+
+    @Test
+    void usesMongoAuditingHandler() {
+        runner.withUserConfiguration(MongoConfig.class, MongoAuditingConfig.class)
+                .run(context -> assertThat(context.getBean(Diffsert.class).optionsFor(AuditedCustomer.class)
+                        .ignoredFields()).containsExactly("_updatedAt"));
+    }
+
+    @Test
+    void noAuditingWithoutEnableMongoAuditing() {
+        runner.withUserConfiguration(MongoConfig.class)
+                .run(context -> {
+                    Diffsert diffsert = context.getBean(Diffsert.class);
+                    assertThat(diffsert.optionsFor(AuditedCustomer.class)).isEqualTo(diffsert.options());
+                });
+    }
+
+    @Test
+    void ignoresAuditingHandlersOfOtherStores() {
+        // e.g. JPA auditing in the same application
+        runner.withUserConfiguration(MongoConfig.class)
+                .withBean("jpaAuditingHandler", AuditingHandler.class,
+                        () -> AuditingHandler.from(new MongoMappingContext()))
+                .run(context -> {
+                    Diffsert diffsert = context.getBean(Diffsert.class);
+                    assertThat(diffsert.optionsFor(AuditedCustomer.class)).isEqualTo(diffsert.options());
+                });
+        runner.withUserConfiguration(MongoConfig.class, MongoAuditingConfig.class)
+                .withBean("jpaAuditingHandler", AuditingHandler.class,
+                        () -> AuditingHandler.from(new MongoMappingContext()))
+                .run(context -> assertThat(context.getBean(Diffsert.class).optionsFor(AuditedCustomer.class)
+                        .ignoredFields()).containsExactly("_updatedAt"));
     }
 
     @Test

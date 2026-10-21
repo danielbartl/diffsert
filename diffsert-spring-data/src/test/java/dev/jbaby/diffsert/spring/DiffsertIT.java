@@ -2,12 +2,15 @@ package dev.jbaby.diffsert.spring;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.time.Instant;
 import java.time.temporal.ChronoUnit;
 import java.util.ArrayList;
+import java.util.Date;
 import java.util.List;
+import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
 
@@ -16,7 +19,13 @@ import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.springframework.data.annotation.CreatedBy;
+import org.springframework.data.annotation.CreatedDate;
 import org.springframework.data.annotation.Id;
+import org.springframework.data.annotation.LastModifiedBy;
+import org.springframework.data.annotation.LastModifiedDate;
+import org.springframework.data.auditing.AuditingHandler;
+import org.springframework.data.auditing.IsNewAwareAuditingHandler;
 import org.springframework.data.mongodb.MongoTransactionManager;
 import org.springframework.data.mongodb.core.MongoTemplate;
 import org.springframework.data.mongodb.core.SimpleMongoClientDatabaseFactory;
@@ -52,7 +61,15 @@ class DiffsertIT {
     static TransactionTemplate transactions;
 
     MongoCollection<Document> collection;
+    MongoCollection<Document> orders;
     Diffsert writer;
+
+    static final Instant T1 = Instant.parse("2026-10-01T08:00:00Z");
+    static final Instant T2 = Instant.parse("2026-10-02T08:00:00Z");
+
+    /** What the auditing handler sees as the current time and user. */
+    Instant now = T1;
+    String auditor = "alice";
 
     @org.springframework.data.mongodb.core.mapping.Document("customers")
     record Customer(
@@ -76,6 +93,28 @@ class DiffsertIT {
         Customer withName(String newName) {
             return new Customer(id, newName, city, jobRunId, createdAt, updatedAt);
         }
+    }
+
+    /** Audited entity; as mapped from the source system, the auditing fields are left empty. */
+    @org.springframework.data.mongodb.core.mapping.Document("orders")
+    record Order(
+            @Id String id,
+            String status,
+            @CreatedDate @Field("_createdAt") Instant createdAt,
+            @CreatedBy String createdBy,
+            @LastModifiedDate @Field("_updatedAt") Instant updatedAt,
+            @LastModifiedBy String updatedBy) {
+
+        static Order of(String id, String status) {
+            return new Order(id, status, null, null, null, null);
+        }
+    }
+
+    record Shipping(String carrier, @LastModifiedDate Instant updatedAt) {
+    }
+
+    @org.springframework.data.mongodb.core.mapping.Document("orders")
+    record ShippedOrder(@Id String id, Shipping shipping) {
     }
 
     static Customer customer(String id, String name, String city) {
@@ -102,6 +141,9 @@ class DiffsertIT {
         template.dropCollection(Customer.class);
         template.createCollection(Customer.class);
         collection = template.getCollection("customers");
+        template.dropCollection(Order.class);
+        template.createCollection(Order.class);
+        orders = template.getCollection("orders");
         writer = new Diffsert(template, DiffsertOptions.builder()
                 .ignoreForChangeDetection("jobRunId", "_updatedAt")
                 .preserveExistingValue("_createdAt")
@@ -282,7 +324,125 @@ class DiffsertIT {
                 "listeners are called when a write runs, not when the transaction commits");
     }
 
+    @Test
+    void auditingSetsCreatedAndModifiedFieldsOnInsert() {
+        Diffsert audited = new Diffsert(template).withAuditing(auditingHandler());
+
+        var events = TestMongo.eventsDuring(orders,
+                () -> assertEquals(WriteOutcome.INSERTED, audited.upsert(Order.of("o1", "open"))));
+
+        assertEquals(1, events.size());
+        assertEquals(OperationType.INSERT, events.get(0).getOperationType());
+        Document stored = storedOrder("o1");
+        assertEquals(Date.from(T1), stored.get("_createdAt"));
+        assertEquals("alice", stored.getString("createdBy"));
+        assertEquals(Date.from(T1), stored.get("_updatedAt"));
+        assertEquals("alice", stored.getString("updatedBy"));
+
+        DiffsertOptions derived = audited.optionsFor(Order.class);
+        assertEquals(Set.of("_createdAt", "createdBy"), derived.preservedFields());
+        assertEquals(Set.of("_updatedAt", "updatedBy"), derived.ignoredFields());
+    }
+
+    @Test
+    void auditingFieldsAloneAreNoChange() {
+        Diffsert audited = new Diffsert(template).withAuditing(auditingHandler());
+        audited.upsert(Order.of("o1", "open"));
+        now = T2;
+        auditor = "bob";
+
+        var events = TestMongo.eventsDuring(orders,
+                () -> assertEquals(WriteOutcome.UNCHANGED, audited.upsert(Order.of("o1", "open"))));
+
+        assertEquals(List.of(), events);
+        assertEquals(Date.from(T1), storedOrder("o1").get("_updatedAt"));
+        assertEquals("alice", storedOrder("o1").getString("updatedBy"));
+    }
+
+    @Test
+    void auditingMovesModifiedFieldsOnlyWithRealChanges() {
+        Diffsert audited = new Diffsert(template).withAuditing(auditingHandler());
+        audited.upsert(Order.of("o1", "open"));
+        now = T2;
+        auditor = "bob";
+
+        var events = TestMongo.eventsDuring(orders,
+                () -> assertEquals(WriteOutcome.UPDATED, audited.upsert(Order.of("o1", "shipped"))));
+
+        assertEquals(1, events.size());
+        assertEquals(Set.of("status", "_updatedAt", "updatedBy"),
+                events.get(0).getUpdateDescription().getUpdatedFields().keySet());
+        Document stored = storedOrder("o1");
+        assertEquals(Date.from(T1), stored.get("_createdAt"));
+        assertEquals("alice", stored.getString("createdBy"));
+        assertEquals(Date.from(T2), stored.get("_updatedAt"));
+        assertEquals("bob", stored.getString("updatedBy"));
+    }
+
+    @Test
+    void auditingSetsModifiedFieldsEvenWithoutModifyOnCreate() {
+        AuditingHandler handler = auditingHandler();
+        handler.setModifyOnCreation(false);
+        Diffsert audited = new Diffsert(template).withAuditing(handler);
+        audited.upsert(Order.of("o1", "open"));
+        now = T2;
+
+        audited.upsert(Order.of("o1", "shipped"));
+
+        // whether a document is new is only known on the server, so a real change must not remove these
+        assertEquals(Date.from(T2), storedOrder("o1").get("_updatedAt"));
+        assertEquals(Date.from(T1), storedOrder("o1").get("_createdAt"));
+    }
+
+    @Test
+    void auditingLeavesDocumentsAlone() {
+        Diffsert audited = new Diffsert(template).withAuditing(auditingHandler());
+        assertEquals(audited.options(), audited.optionsFor(Document.class));
+
+        audited.upsert(new Document("_id", "o1").append("status", "open").append("_updatedAt", Date.from(T1)),
+                "orders");
+        WriteOutcome second = audited.upsert(
+                new Document("_id", "o1").append("status", "open").append("_updatedAt", Date.from(T2)), "orders");
+
+        assertEquals(WriteOutcome.UPDATED, second, "_updatedAt is not ignored for a Document");
+        assertTrue(!storedOrder("o1").containsKey("_createdAt"));
+    }
+
+    @Test
+    void auditingNeedsToBeEnabled() {
+        Diffsert plain = new Diffsert(template);
+        assertEquals(plain.options(), plain.optionsFor(Order.class));
+
+        plain.upsert(Order.of("o1", "open"));
+
+        assertEquals(Set.of("_id", "status"), storedOrder("o1").keySet());
+    }
+
+    @Test
+    void auditingRejectsNestedFieldsAndMixedBatches() {
+        Diffsert audited = new Diffsert(template).withAuditing(auditingHandler());
+
+        var nested = assertThrows(IllegalArgumentException.class,
+                () -> audited.upsert(new ShippedOrder("o1", new Shipping("DHL", null))));
+        assertTrue(nested.getMessage().contains("shipping.updatedAt"), nested.getMessage());
+        assertThrows(IllegalArgumentException.class,
+                () -> audited.upsertAll(List.of(Order.of("o1", "open"), customer("c1", "Acme", "Berlin")), "orders"));
+        assertEquals(0, orders.countDocuments());
+    }
+
     // ---------------------------------------------------------------- helpers
+
+    /** Like {@code @EnableMongoAuditing}'s handler, with the time and user taken from {@link #now} and {@link #auditor}. */
+    private AuditingHandler auditingHandler() {
+        IsNewAwareAuditingHandler handler = IsNewAwareAuditingHandler.from(template.getConverter().getMappingContext());
+        handler.setDateTimeProvider(() -> Optional.of(now));
+        handler.setAuditorAware(() -> Optional.of(auditor));
+        return handler;
+    }
+
+    private Document storedOrder(String id) {
+        return orders.find(new Document("_id", id)).first();
+    }
 
     private Document stored(String id) {
         return collection.find(new Document("_id", id)).first();

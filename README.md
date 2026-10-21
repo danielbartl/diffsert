@@ -139,6 +139,32 @@ writer.upsertAll(database.getCollection("customers"), documents);
 | `replace()` / `merge()`            | `diffsert.mode`            | `replace` | `replace`: fields missing from the new document are removed. `merge`: fields only in the stored document are kept. |
 | `ordered(...)`                     | `diffsert.ordered`         | `false`   | Ordered bulk writes stop at the first error; unordered ones continue and are faster.                    |
 | `Diffsert.withTypeKeyRemoved(...)` | `diffsert.remove-type-key` | `true`    | Remove Spring Data's type key (`_class`) from converted entities.                                       |
+| `Diffsert.withAuditing(...)`       | `@EnableMongoAuditing`     | off       | Handle Spring Data's auditing annotations, see below.                                                   |
+
+### Auditing
+
+With `@EnableMongoAuditing` (or `diffsert.withAuditing(auditingHandler)` without the starter), Diffsert handles
+Spring Data's auditing annotations on entities, so `@LastModifiedDate` only moves when something really changed:
+
+```java
+@Document("orders")
+record Order(@Id String id, String status,
+             @CreatedDate Instant createdAt, @LastModifiedDate Instant updatedAt) { }
+```
+
+| Annotation                             | Handled as      | Effect                                               |
+|----------------------------------------|-----------------|------------------------------------------------------|
+| `@CreatedDate`, `@CreatedBy`           | preserved field | set when the document is inserted, then kept         |
+| `@LastModifiedDate`, `@LastModifiedBy` | ignored field   | written only together with a real change             |
+
+- These fields are added to the configured options per entity type; `diffsert.optionsFor(Order.class)` shows the
+  result. `Document`s are written as they are, without auditing.
+- Every entity is marked like `save()` marks a new one: mutable entities get the values set in place, immutable ones
+  need a wither or a single constructor, as with `save()`.
+- A stored document without a created date, e.g. from before auditing was enabled, gets the current time on its next
+  write, which writes it once.
+- Only top-level properties are supported: entities with auditing annotations in embedded objects are rejected, and
+  entity types with different auditing fields can't be mixed in one batch.
 
 ### Results, listeners and metrics
 

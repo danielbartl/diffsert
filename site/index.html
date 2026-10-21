@@ -715,6 +715,7 @@ WriteOutcome outcome = diffsert.upsert(dto);
           <ul>
             <li>With Micrometer, written documents are counted as <code>diffsert.documents</code>, tagged with <code>collection</code> and <code>outcome</code>.</li>
             <li>Every <code>DiffsertListener</code> bean is called after each write. A failing listener is logged and doesn't affect the write.</li>
+            <li>With <code>@EnableMongoAuditing</code>, <code>@LastModifiedDate</code> fields move only when something really changed, and <code>@CreatedDate</code> fields keep their stored value.</li>
             <li>To configure options in code, define a <code>DiffsertOptions</code> bean; it wins over the properties.</li>
             <li>Your own <code>Diffsert</code> bean replaces the auto-configured one, including the listener wiring. Attach metrics with <code>diffsert.withListener(diffsertMetrics)</code>.</li>
           </ul>
@@ -746,6 +747,7 @@ diffsert.upsertAll(dtos, <span class="s">"customers"</span>);         <span clas
           <p>Entities are converted the way <code>save()</code> converts them, with Spring Data's <code>MongoConverter</code>: <code>@Id</code>, <code>@Field</code> and custom converters apply. Every entity needs an id.</p>
           <ul>
             <li>The type key <code>_class</code> is removed by default; <code>withTypeKeyRemoved(false)</code> keeps it.</li>
+            <li><code>withAuditing(auditingHandler)</code> handles <code>@CreatedDate</code>, <code>@LastModifiedDate</code> and friends; <code>Document</code>s are written as they are.</li>
             <li><code>update</code> and <code>updateAll</code> never insert.</li>
             <li>Writes join a Spring-managed transaction (<code>MongoTransactionManager</code>, e.g. with <code>@Transactional</code>). Listeners and metrics are called when a write runs, so they also count writes that are rolled back later.</li>
             <li><code>toWriteModels(...)</code> returns the write models without executing them, for sessions without Spring or your own <code>bulkWrite</code>.</li>
@@ -789,7 +791,7 @@ BatchWriteResult result = writer.upsertAll(customers, documents);</code></pre>
     <div class="wrap">
       <div class="sec-head">
         <p class="eyebrow">Options</p>
-        <h2>Five settings, sensible defaults.</h2>
+        <h2>Six settings, sensible defaults.</h2>
       </div>
       <div class="table-wrap opt-table">
         <table>
@@ -800,6 +802,7 @@ BatchWriteResult result = writer.upsertAll(customers, documents);</code></pre>
             <tr><td><code>replace()</code> / <code>merge()</code></td><td><code>diffsert.mode</code></td><td><code>replace</code></td><td><code>replace</code> removes fields missing from the new document. <code>merge</code> keeps fields that only the stored document has.</td></tr>
             <tr><td><code>ordered(…)</code></td><td><code>diffsert.ordered</code></td><td><code>false</code></td><td>Ordered bulk writes stop at the first error. Unordered ones continue and are faster.</td></tr>
             <tr><td><code>withTypeKeyRemoved(…)</code></td><td><code>diffsert.remove-type-key</code></td><td><code>true</code></td><td>Remove Spring Data's type key <code>_class</code> from converted entities.</td></tr>
+            <tr><td><code>withAuditing(…)</code></td><td><code>@EnableMongoAuditing</code></td><td>off</td><td><code>@CreatedDate</code> and <code>@CreatedBy</code> are preserved, <code>@LastModifiedDate</code> and <code>@LastModifiedBy</code> are ignored: they move only with a real change. Top-level entity properties only.</td></tr>
           </tbody>
         </table>
       </div>

@@ -3,8 +3,11 @@ package dev.jbaby.diffsert.spring;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.List;
+import java.util.Map;
+import java.util.concurrent.ConcurrentHashMap;
 
 import org.bson.Document;
+import org.springframework.data.auditing.AuditingHandler;
 import org.springframework.data.mongodb.core.MongoOperations;
 import org.springframework.data.mongodb.core.convert.MongoConverter;
 import org.springframework.data.mongodb.core.convert.MongoTypeMapper;
@@ -26,6 +29,11 @@ import dev.jbaby.diffsert.WriteOutcome;
  * converters apply as with {@code save()}. Every entity must have an id. {@link Document}s are written as they are.
  * Spring Data's type key (usually {@code _class}) is removed by default, see {@link #withTypeKeyRemoved(boolean)}.
  * <p>
+ * With {@link #withAuditing(AuditingHandler)} (automatic in the Spring Boot starter with {@code @EnableMongoAuditing}),
+ * Spring Data's auditing annotations on top-level properties are handled: {@code @CreatedDate} and {@code @CreatedBy}
+ * keep their stored value once set, {@code @LastModifiedDate} and {@code @LastModifiedBy} don't count as a change, so
+ * they only move when something else changed.
+ * <p>
  * Writes go through {@link MongoOperations#getCollection(String)}, so they join a Spring-managed transaction
  * ({@code MongoTransactionManager}) like any template operation. Listeners are called when a write runs, not when the
  * transaction commits.
@@ -40,22 +48,27 @@ public final class Diffsert {
     private final MongoOperations mongo;
     private final DiffsertWriter writer;
     private final boolean removeTypeKey;
+    private final AuditingHandler auditingHandler;
+    private final Map<Class<?>, EntityAuditing> auditingByType;
 
     public Diffsert(MongoOperations mongo) {
         this(mongo, DiffsertOptions.defaults());
     }
 
     public Diffsert(MongoOperations mongo, DiffsertOptions options) {
-        this(mongo, new DiffsertWriter(options), true);
+        this(mongo, new DiffsertWriter(options), true, null, new ConcurrentHashMap<>());
     }
 
-    private Diffsert(MongoOperations mongo, DiffsertWriter writer, boolean removeTypeKey) {
+    private Diffsert(MongoOperations mongo, DiffsertWriter writer, boolean removeTypeKey,
+            AuditingHandler auditingHandler, Map<Class<?>, EntityAuditing> auditingByType) {
         if (mongo == null) {
             throw new IllegalArgumentException("mongo must not be null");
         }
         this.mongo = mongo;
         this.writer = writer;
         this.removeTypeKey = removeTypeKey;
+        this.auditingHandler = auditingHandler;
+        this.auditingByType = auditingByType;
     }
 
     public DiffsertOptions options() {
@@ -71,19 +84,50 @@ public final class Diffsert {
         return removeTypeKey;
     }
 
+    /**
+     * The options used for entities of {@code type}: the configured ones, plus the fields derived from auditing
+     * annotations if auditing is enabled. For {@link Document}s, always the configured ones.
+     *
+     * @throws IllegalArgumentException if auditing is enabled and {@code type} has auditing annotations on nested
+     *                                  properties
+     */
+    public DiffsertOptions optionsFor(Class<?> type) {
+        return auditingOf(type).applyTo(writer.options());
+    }
+
     /** Returns an instance for the same database with different options. */
     public Diffsert withOptions(DiffsertOptions newOptions) {
-        return new Diffsert(mongo, writer.withOptions(newOptions), removeTypeKey);
+        return new Diffsert(mongo, writer.withOptions(newOptions), removeTypeKey, auditingHandler, auditingByType);
     }
 
     /** Returns an instance that reports every write to {@code listener} (replacing the current one). */
     public Diffsert withListener(DiffsertListener listener) {
-        return new Diffsert(mongo, writer.withListener(listener), removeTypeKey);
+        return new Diffsert(mongo, writer.withListener(listener), removeTypeKey, auditingHandler, auditingByType);
     }
 
     /** Returns an instance that removes (default) or keeps Spring Data's type key in converted entities. */
     public Diffsert withTypeKeyRemoved(boolean remove) {
-        return new Diffsert(mongo, writer, remove);
+        return new Diffsert(mongo, writer, remove, auditingHandler, auditingByType);
+    }
+
+    /**
+     * Returns an instance that handles Spring Data's auditing annotations on entities, using {@code auditingHandler}
+     * (with {@code @EnableMongoAuditing}, the bean {@code mongoAuditingHandler}):
+     * <ul>
+     * <li>every entity is marked as created (and modified) before conversion, like {@code save()} does for a new
+     * entity; mutable entities are changed in place,</li>
+     * <li>{@code @CreatedDate} and {@code @CreatedBy} fields are preserved: the stored value is kept once set,</li>
+     * <li>{@code @LastModifiedDate} and {@code @LastModifiedBy} fields are ignored for change detection, so they only
+     * change when something else changed.</li>
+     * </ul>
+     * Only top-level properties are supported; entities with nested auditing fields are rejected. {@link Document}s
+     * are written as they are.
+     */
+    public Diffsert withAuditing(AuditingHandler auditingHandler) {
+        if (auditingHandler == null) {
+            throw new IllegalArgumentException("auditingHandler must not be null");
+        }
+        return new Diffsert(mongo, writer, removeTypeKey, auditingHandler, auditingByType);
     }
 
     // ---------------------------------------------------------------- single entity
@@ -94,7 +138,8 @@ public final class Diffsert {
     }
 
     public WriteOutcome upsert(Object entity, String collectionName) {
-        return writer.upsert(collection(collectionName), toDocument(entity));
+        Document doc = toDocument(entity);
+        return writerFor(entity.getClass()).upsert(collection(collectionName), doc);
     }
 
     /** Updates one entity if it exists; never inserts. */
@@ -103,7 +148,8 @@ public final class Diffsert {
     }
 
     public WriteOutcome update(Object entity, String collectionName) {
-        return writer.update(collection(collectionName), toDocument(entity));
+        Document doc = toDocument(entity);
+        return writerFor(entity.getClass()).update(collection(collectionName), doc);
     }
 
     // ---------------------------------------------------------------- batch
@@ -114,7 +160,8 @@ public final class Diffsert {
     }
 
     public BatchWriteResult upsertAll(Collection<?> entities, String collectionName) {
-        return writer.upsertAll(collection(collectionName), toDocuments(entities));
+        Batch batch = prepare(entities);
+        return batch.writer().upsertAll(collection(collectionName), batch.docs());
     }
 
     /** Updates all entities that exist with one bulk write; never inserts. */
@@ -123,7 +170,8 @@ public final class Diffsert {
     }
 
     public BatchWriteResult updateAll(Collection<?> entities, String collectionName) {
-        return writer.updateAll(collection(collectionName), toDocuments(entities));
+        Batch batch = prepare(entities);
+        return batch.writer().updateAll(collection(collectionName), batch.docs());
     }
 
     // ---------------------------------------------------------------- building blocks
@@ -133,10 +181,11 @@ public final class Diffsert {
      * operations in your own {@code bulkWrite}.
      */
     public List<WriteModel<Document>> toWriteModels(Collection<?> entities, boolean upsert) {
-        return writer.toWriteModels(toDocuments(entities), upsert);
+        Batch batch = prepare(entities);
+        return batch.writer().toWriteModels(batch.docs(), upsert);
     }
 
-    /** Converts an entity into the BSON document that would be written. */
+    /** Converts an entity into the BSON document that would be written (marked for auditing if enabled). */
     public Document toDocument(Object entity) {
         if (entity == null) {
             throw new IllegalArgumentException("entity must not be null");
@@ -147,7 +196,8 @@ public final class Diffsert {
         } else {
             doc = new Document();
             MongoConverter converter = mongo.getConverter();
-            converter.write(entity, doc);
+            EntityAuditing auditing = auditingOf(entity.getClass());
+            converter.write(auditing.isEmpty() ? entity : auditing.mark(auditingHandler, entity), doc);
             if (removeTypeKey) {
                 MongoTypeMapper typeMapper = converter.getTypeMapper();
                 doc.keySet().removeIf(typeMapper::isTypeKey);
@@ -161,15 +211,43 @@ public final class Diffsert {
 
     // ---------------------------------------------------------------- internals
 
-    private List<Document> toDocuments(Collection<?> entities) {
-        if (entities == null) {
-            return List.of();
+    private record Batch(DiffsertWriter writer, List<Document> docs) {
+    }
+
+    /** Converts the entities; they share one writer, so they must agree on the fields derived from auditing. */
+    private Batch prepare(Collection<?> entities) {
+        if (entities == null || entities.isEmpty()) {
+            return new Batch(writer, List.of());
         }
         List<Document> docs = new ArrayList<>(entities.size());
+        DiffsertOptions batchOptions = null;
         for (Object entity : entities) {
             docs.add(toDocument(entity));
+            DiffsertOptions entityOptions = optionsFor(entity.getClass());
+            if (batchOptions == null) {
+                batchOptions = entityOptions;
+            } else if (!batchOptions.equals(entityOptions)) {
+                throw new IllegalArgumentException("entities in one batch must have the same auditing fields; write "
+                        + entity.getClass().getName() + " in a separate batch");
+            }
         }
-        return docs;
+        return new Batch(writerWith(batchOptions), docs);
+    }
+
+    private DiffsertWriter writerFor(Class<?> type) {
+        return writerWith(optionsFor(type));
+    }
+
+    private DiffsertWriter writerWith(DiffsertOptions options) {
+        return options.equals(writer.options()) ? writer : writer.withOptions(options);
+    }
+
+    private EntityAuditing auditingOf(Class<?> type) {
+        if (auditingHandler == null) {
+            return EntityAuditing.NONE;
+        }
+        return auditingByType.computeIfAbsent(type,
+                t -> EntityAuditing.of(mongo.getConverter().getMappingContext(), t));
     }
 
     private MongoCollection<Document> collection(String collectionName) {
