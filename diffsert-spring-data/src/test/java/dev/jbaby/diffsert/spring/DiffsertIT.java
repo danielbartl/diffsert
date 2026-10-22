@@ -37,6 +37,7 @@ import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
 import org.testcontainers.mongodb.MongoDBContainer;
 
+import com.mongodb.WriteConcern;
 import com.mongodb.client.MongoClient;
 import com.mongodb.client.MongoClients;
 import com.mongodb.client.MongoCollection;
@@ -347,6 +348,18 @@ class DiffsertIT {
         assertEquals(1, collection.countDocuments());
         assertEquals(List.of("requested=2, inserted=1, updated=1, unchanged=0, notFound=0"), reported,
                 "listeners are called when a write runs, not when the transaction commits");
+    }
+
+    @Test
+    void writesWithItsOwnWriteConcern() {
+        // one set on the template doesn't reach getCollection(); w: 0 is rejected, which shows it is used
+        Customer a = customer("c1", "Acme", "Berlin");
+        Diffsert majority = writer.withWriteConcern(WriteConcern.MAJORITY);
+
+        assertThrows(IllegalArgumentException.class,
+                () -> writer.withWriteConcern(WriteConcern.UNACKNOWLEDGED).upsert(a));
+        assertEquals(WriteOutcome.INSERTED, majority.upsert(a));
+        assertEquals(WriteOutcome.UNCHANGED, transactions.execute(status -> majority.upsert(a.nextRun())));
     }
 
     @Test

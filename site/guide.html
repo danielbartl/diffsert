@@ -528,7 +528,7 @@ BatchWriteResult result = writer.upsertAll(customers, documents);</code></pre>
       <li>On insert, the new document's value is written.</li>
       <li>After that, the stored value is kept, whatever the new document contains. A different value doesn't count as a change, so a preserved field doesn't need to be ignored as well.</li>
       <li>If the stored document doesn't have the field yet, for example because it was written before the field existed, the new value is written. That counts as a change, so it happens once, with the next write.</li>
-      <li>Leaving the field out of the new document doesn't remove it, not even in replace mode.</li>
+      <li>Leaving the field out of the new document doesn't remove it, not even in replace mode, and alone it's no change. With a real change in replace mode, the field is then written as the last field.</li>
     </ul>
     <p>
       The last point also protects fields that another process writes: in replace mode, a preserved field is never
@@ -586,10 +586,12 @@ BatchWriteResult result = writer.upsertAll(customers, documents);</code></pre>
       <code>toDocument(entity)</code> shows the document that would be written.
     </p>
     <ul>
+      <li><strong>Only the conversion is like <code>save()</code>.</strong> Entity callbacks (<code>BeforeConvertCallback</code>, <code>BeforeSaveCallback</code>, <code>AfterSaveCallback</code>), validation and mapping events (<code>BeforeSaveEvent</code>, <code>AfterSaveEvent</code> and the others) don't run. Set values that a callback would set, such as a tenant field, before writing, and validate entities yourself. Auditing is handled separately, see <a href="#auditing">Auditing</a>.</li>
       <li><strong>Null properties are left out</strong>, as with <code>save()</code>. In replace mode, a property that becomes <code>null</code> therefore removes the stored field, which appears in <code>removedFields</code>. <code>@Field(write = Field.Write.ALWAYS)</code> writes <code>null</code> instead.</li>
       <li><strong>The type key <code>_class</code> is removed</strong> by default, so documents don't change when you rename or move a class. Keep it with <code>withTypeKeyRemoved(false)</code> (property <code>diffsert.remove-type-key: false</code>) if you read the documents polymorphically, or if your application also writes them with <code>save()</code>. Otherwise <code>_class</code> counts as a change whenever the other side wrote last.</li>
       <li><strong><code>Document</code>s are written as they are</strong>, without conversion. The configured options apply, but nothing is derived from annotations.</li>
       <li><strong>One batch can mix entity types</strong> as long as they derive the same options, that is the same auditing fields and version field. Otherwise write them in separate batches.</li>
+      <li><strong>Write concern:</strong> writes use the write concern of the client or database, for example <code>?w=majority</code> in the connection string. One set on the template with <code>setWriteConcern</code> or a <code>WriteConcernResolver</code> doesn't apply; use <code>withWriteConcern(WriteConcern.MAJORITY)</code>. With the starter, call it where you inject the bean, so listeners and metrics stay attached: <code>this.diffsert = diffsert.withWriteConcern(...)</code>.</li>
     </ul>
     <p>
       <code>optionsFor(CustomerDto.class)</code> <span class="since" title="Added in 0.2.0">0.2.0</span> returns the
@@ -714,7 +716,7 @@ DiffsertListener logWrites() {
     </div>
     <ul>
       <li>It runs on the writing thread, after the write.</li>
-      <li>If a bulk write fails, the listener first receives the result of the documents that were written, then the exception is thrown.</li>
+      <li>If a bulk write fails, the listener first receives the result of the documents that were written, then the exception is thrown. A single write that fails isn't reported, not even after a write concern error, see <a href="#errors-failed">Failed writes</a>.</li>
       <li><code>withListener(...)</code> replaces the current listener. To notify several, call them from one listener; the starter does that for listener beans.</li>
       <li>Outside the starter, an exception thrown by a listener reaches the caller, although the write has already happened.</li>
       <li>Write models from <code>toWriteModels(...)</code> aren't reported, because you execute them.</li>
@@ -852,6 +854,7 @@ models.add(<span class="k">new</span> DeleteManyModel&lt;&gt;(Filters.eq(<span c
       <li>A single write throws a <code>MongoWriteException</code>, for example for a duplicate key in a unique index.</li>
       <li>A batch throws a <code>MongoBulkWriteException</code>. <code>getWriteErrors()</code> lists each failed document with its index in the batch. Unordered batches, the default, still write all other documents; ordered ones stop at the first error.</li>
       <li>Documents written before or besides the failed ones are reported to listeners and metrics before the exception is thrown.</li>
+      <li>A write concern error, for example a <code>w: majority</code> timeout, means the write was applied on the primary but not confirmed as required. In a batch, these writes are reported. A single write throws a <code>MongoWriteConcernException</code> without reporting it: the driver doesn't say whether the document was changed.</li>
     </ul>
     <h3 id="retries">Retries are safe</h3>
     <p>
@@ -911,6 +914,7 @@ mongoTemplate.remove(Query.query(Criteria.where(<span class="s">"_id"</span>).ni
       <li><strong>Expect one round of updates.</strong> The first run updates every document whose stored form differs from what Diffsert writes, typically because <code>_class</code> is removed, and emits one event for each. After that, only real changes produce events. Run it once before consumers rely on the new behavior, or keep the type key.</li>
       <li><strong>Update consumers.</strong> Events change from <code>replace</code> with the full document to <code>update</code> with <code>updateDescription</code>. Check consumers that read the full document, and Debezium setups, see <a href="#debezium">With Debezium</a>.</li>
       <li><strong>Ids:</strong> <code>save()</code> generates missing ids, Diffsert requires them.</li>
+      <li><strong>Callbacks and events:</strong> entity callbacks, validation and save events don't run, see <a href="#entities">Spring Data entities</a>.</li>
       <li><strong>Versioned entities:</strong> see <a href="#versions-entities">With <code>@Version</code> entities</a>.</li>
     </ul>
 
@@ -969,6 +973,7 @@ collection.deleteOne(<span class="k">new</span> Document(<span class="s">"_id"</
       <li>The field is preserved: the stored value wins.</li>
       <li>Merge mode: fields left out of the new document are kept.</li>
       <li>Only a numeric type changed, such as <code>1</code> to <code>1L</code>, while ignored, preserved or version fields are configured. Equal numbers then count as unchanged.</li>
+      <li>The collection has a case- or accent-insensitive default collation, and only the case or accents changed, such as <code>Acme</code> to <code>ACME</code>, while ignored, preserved or version fields are configured. The comparison uses the collation, see <a href="#limits">Limitations</a>.</li>
       <li><code>update</code> and <code>updateAll</code> don't insert; look for <code>NOT_FOUND</code>.</li>
     </ul>
     <h3 id="ts-replace">Replace events still appear</h3>
@@ -985,6 +990,7 @@ collection.deleteOne(<span class="k">new</span> Document(<span class="s">"_id"</
     <ul>
       <li>Ignored, preserved and version fields are top-level fields; nested ones such as <code>meta.updatedAt</code> aren't supported.</li>
       <li>Documents are matched by <code>_id</code> only.</li>
+      <li>Collections with a non-simple default collation: with ignored, preserved or version fields, the comparison uses the collation, so a change that it treats as equal, such as <code>Acme</code> to <code>ACME</code> with a case-insensitive one, isn't written. Without these options, it is. String ids that differ only in case match the same document, as with any query, and the write fails because <code>_id</code> can't change.</li>
       <li>Sharded collections aren't tested. MongoDB requires the full shard key in the filter of an upsert, so upserts by <code>_id</code> work only where <code>_id</code> is the shard key.</li>
       <li>Synchronous driver only; there is no reactive API.</li>
       <li>Spring Boot 4 and Spring Data MongoDB 2025.1; older Spring versions aren't supported.</li>

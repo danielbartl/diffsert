@@ -121,15 +121,16 @@ public final class DiffsertWriter {
     /**
      * The update pipeline for one document. Without ignored, preserved or version fields it is simply
      * <pre>{@code [{ $replaceWith: { $literal: <doc> } }]}</pre>
-     * With them, it computes the result first and keeps the stored document unless something outside the ignored
-     * fields and the version field differs:
+     * With them, it computes the result first and keeps the stored document unless something outside the ignored,
+     * version and preserved fields differs, or the result adds a preserved field:
      * <pre>{@code
      * [{ $replaceWith: { $let: {
      *     vars: { incoming: <doc, or $$ROOT merged with doc> },
      *     in: { $let: {
      *       vars: { result: <incoming with stored values of preserved fields> },
      *       in: { $cond: {
-     *         if:   <document existed> and <$$ROOT == result, both without ignored fields and the version field>,
+     *         if:   <document existed> and <$$ROOT == result, both without ignored, version and preserved fields>
+     *               and <each preserved field: stored, or missing from the result as well>,
      *         then: "$$ROOT",
      *         else: <result, with the version field set to the stored value + 1 or the initial version> } } } } } } }]
      * }</pre>
@@ -140,6 +141,11 @@ public final class DiffsertWriter {
      * }</pre>
      * so it keeps its position in the incoming document (or is appended), and a stored non-numeric value fails the
      * write ({@code $multiply} rejects dates, which {@code $add} alone would accept).
+     * <p>
+     * Where the stored document has a preserved field, the result has its stored value, so it could only differ in
+     * position (in replace mode, a field missing from the new document is merged back at the end); that alone is no
+     * change. Adding a preserved field the stored document doesn't have is one.
+     * <p>
      * {@code $literal} makes sure values starting with {@code $} are never interpreted as expressions, and {@code _id}
      * is moved to the front of the document: MongoDB always stores it first, so anywhere else, the field order would
      * differ and every write would count as a change.
@@ -171,9 +177,16 @@ public final class DiffsertWriter {
         Object nothingRelevantChanged = new Document("$eq", List.of(
                 withoutUncomparedFields("$$ROOT"),
                 withoutUncomparedFields("$$result")));
+        List<Object> keepStored = new ArrayList<>(List.of(documentExisted, nothingRelevantChanged));
+        for (String field : options.preservedFields()) {
+            // { $or: [ <stored field present>, <result field missing> ] }: adding a preserved field is a change
+            keepStored.add(new Document("$or", List.of(
+                    new Document("$ne", List.of(new Document("$type", "$" + field), "missing")),
+                    new Document("$eq", List.of(new Document("$type", "$$result." + field), "missing")))));
+        }
 
         Object keepOrReplace = new Document("$cond", new Document()
-                .append("if", new Document("$and", List.of(documentExisted, nothingRelevantChanged)))
+                .append("if", new Document("$and", keepStored))
                 .append("then", "$$ROOT")
                 .append("else", withNextVersion("$$result")));
 
@@ -188,16 +201,23 @@ public final class DiffsertWriter {
 
     // ---------------------------------------------------------------- internals
 
-    /** {@code input} without the ignored fields and the version field. */
+    /** {@code input} without the ignored, version and preserved fields. */
     private Object withoutUncomparedFields(Object input) {
         Object expr = input;
         for (String field : options.ignoredFields()) {
-            expr = new Document("$unsetField", new Document("field", field).append("input", expr));
+            expr = unsetField(field, expr);
         }
         if (options.versionField() != null) {
-            expr = new Document("$unsetField", new Document("field", options.versionField()).append("input", expr));
+            expr = unsetField(options.versionField(), expr);
+        }
+        for (String field : options.preservedFields()) {
+            expr = unsetField(field, expr);
         }
         return expr;
+    }
+
+    private static Document unsetField(String field, Object input) {
+        return new Document("$unsetField", new Document("field", field).append("input", input));
     }
 
     /** {@code result} with the version field set to the stored value + 1, or the initial version. */

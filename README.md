@@ -120,7 +120,9 @@ diffsert.upsertAll(dtos, "customers");               // or explicit
 ```
 
 Entities are converted like `save()` does (`@Id`, `@Field`, custom converters); every entity needs an id. The type key
-`_class` is removed by default (`withTypeKeyRemoved(false)` keeps it).
+`_class` is removed by default (`withTypeKeyRemoved(false)` keeps it). Only the conversion is like `save()`: entity
+callbacks, validation and mapping events don't run. Writes use the write concern of the client or database; one set
+on the template doesn't apply, use `withWriteConcern(...)`.
 
 ### Plain driver
 
@@ -245,7 +247,10 @@ carries depends on its `capture.mode`:
   inspected via `getWriteErrors()`. Documents written before or besides the failed ones are still reported to
   listeners and metrics.
 - **The write concern must be acknowledged.** With `w: 0`, a write doesn't tell what it did, so Diffsert rejects such
-  a collection before writing.
+  a collection before writing. A single write that fails on its write concern (e.g. a `w: majority` timeout) may have
+  been applied but isn't reported to listeners and metrics: the driver doesn't say whether it changed anything.
+- **Collations:** on a collection with a non-simple default collation, the comparison with ignored, preserved or
+  version fields uses it, so a change it treats as equal (`Acme` → `ACME` when case-insensitive) isn't written.
 
 ## Building
 

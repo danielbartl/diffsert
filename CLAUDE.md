@@ -22,6 +22,9 @@ so downstream logic fired for every document even when nothing relevant changed.
 - `ignoredFields` (e.g. `jobRunId`, `_updatedAt`): compared via `$unsetField` on both sides; if only these differ,
   `$$ROOT` is kept (no-op). Otherwise they are written along with the real changes.
 - `preservedFields` (e.g. `_createdAt`): merged back from the stored doc via `$mergeObjects` + `$type != "missing"`.
+  Left out of the comparison (a stored one only gets its value back, so it could differ in position only: replace
+  mode appends it when the new doc lacks it), plus one check per field that the result doesn't add one the stored
+  doc lacks (that is a change).
 - `versionField` (e.g. `version`): left out of the comparison like ignored fields, incoming value ignored; on a real
   change set to stored + 1 (`$multiply` by 1 first, so a non-number fails, dates included; `$add` keeps
   int32/int64), or to `initialVersion` (Integer or Long) on insert / when the
@@ -42,7 +45,10 @@ so downstream logic fired for every document even when nothing relevant changed.
     returns no outcome), `DiffsertOptions` (immutable record + builder: mode, ignored,
     preserved, ordered, versionField + initialVersion; the old 4-arg constructor is kept), `WriteOutcome`, `BatchWriteResult`, `DiffsertListener` (called after every write).
   - `diffsert-spring-data`, package `dev.jbaby.diffsert.spring`: `Diffsert` (entity conversion via `MongoConverter`,
-    `withTypeKeyRemoved`, delegates to `DiffsertWriter`). `withAuditing(AuditingHandler)`: `EntityAuditing` derives
+    `withTypeKeyRemoved`, `withWriteConcern` because a template's own write concern / `WriteConcernResolver` don't
+    reach `getCollection()` and `MongoTemplate` has no getters for them, delegates to `DiffsertWriter`). Entity
+    callbacks, validation and mapping events don't run (documented; the template's `EntityCallbacks` aren't
+    exposed either, and `@EnableMongoAuditing`'s callback would collide with Diffsert's own marking). `withAuditing(AuditingHandler)`: `EntityAuditing` derives
     preserved (`@CreatedDate/@CreatedBy`) and ignored (`@LastModifiedDate/@LastModifiedBy`) fields per entity type
     (top-level only, nested ones rejected), added to the configured options (`optionsFor(type)`, cached per type
     with its writer); entities are marked with `markCreated` (+ `markModified` if `markCreated` left the modified
@@ -138,7 +144,13 @@ so downstream logic fired for every document even when nothing relevant changed.
   stored type.
 - Arrays and nested documents are reported by path (`tags.2`, `address.street`); shortened arrays via
   `truncatedArrays`. (An earlier note claiming "whole array" was wrong.)
-- Driver exceptions (e.g. `MongoBulkWriteException`) are thrown untranslated on purpose.
+- Driver exceptions (e.g. `MongoBulkWriteException`) are thrown untranslated on purpose. A single write failing with
+  `MongoWriteConcernException` isn't reported to listeners: the driver's `WriteConcernResult` has matched count and
+  upserted id but no modified count (decided 2026-10-22 to document, not to emulate via a one-element bulk write).
+- A non-simple default collation applies to the comparing pipeline's `$eq`: a case-only change (case-insensitive
+  collation) is UNCHANGED with ignored/preserved/version fields, written without them (pinned by
+  `caseOnlyChangeCountsAsUnchangedWithCaseInsensitiveCollation`). Forcing `simple` collation would likely cost the
+  collated `_id` index for string ids; decided 2026-10-22 to document only.
 - Debezium (README "With Debezium"; from the 2.7 docs and connector source, not covered by our tests): `update` and
   `replace` both become `op: "u"`, a replace has no `updateDescription`. Default `capture.mode`
   `change_streams_update_full` adds the looked-up full document as `after`. With `change_streams`, Diffsert's

@@ -14,6 +14,7 @@ import org.springframework.data.mongodb.core.convert.MongoTypeMapper;
 import org.springframework.data.mongodb.core.mapping.MongoPersistentEntity;
 import org.springframework.data.mongodb.core.mapping.MongoPersistentProperty;
 
+import com.mongodb.WriteConcern;
 import com.mongodb.client.MongoCollection;
 import com.mongodb.client.model.WriteModel;
 
@@ -42,7 +43,13 @@ import dev.jbaby.diffsert.WriteOutcome;
  * <p>
  * Writes go through {@link MongoOperations#getCollection(String)}, so they join a Spring-managed transaction
  * ({@code MongoTransactionManager}) like any template operation. Listeners are called when a write runs, not when the
- * transaction commits.
+ * transaction commits. The collection's write concern is the one of the client or database: a write concern set on
+ * the template ({@code setWriteConcern}, {@code WriteConcernResolver}) doesn't apply, see
+ * {@link #withWriteConcern(WriteConcern)}.
+ * <p>
+ * Only the conversion works like {@code save()}: entity callbacks ({@code BeforeConvertCallback},
+ * {@code BeforeSaveCallback}, {@code AfterSaveCallback}), validation and mapping events ({@code BeforeSaveEvent},
+ * {@code AfterSaveEvent} etc.) don't run.
  * <p>
  * Driver exceptions such as {@link com.mongodb.MongoBulkWriteException} are thrown as-is (not translated to Spring's
  * {@code DataAccessException}), so failed operations can be inspected via {@code getWriteErrors()}.
@@ -55,6 +62,7 @@ public final class Diffsert {
     private final DiffsertWriter writer;
     private final boolean removeTypeKey;
     private final AuditingHandler auditingHandler;
+    private final WriteConcern writeConcern;
     private final Map<Class<?>, EntityAuditing> auditingByType;
     private final Map<Class<?>, DiffsertWriter> writerByType = new ConcurrentHashMap<>();
 
@@ -63,11 +71,12 @@ public final class Diffsert {
     }
 
     public Diffsert(MongoOperations mongo, DiffsertOptions options) {
-        this(mongo, new DiffsertWriter(options), true, null, new ConcurrentHashMap<>());
+        this(mongo, new DiffsertWriter(options), true, null, null, new ConcurrentHashMap<>());
     }
 
     private Diffsert(MongoOperations mongo, DiffsertWriter writer, boolean removeTypeKey,
-            AuditingHandler auditingHandler, Map<Class<?>, EntityAuditing> auditingByType) {
+            AuditingHandler auditingHandler, WriteConcern writeConcern,
+            Map<Class<?>, EntityAuditing> auditingByType) {
         if (mongo == null) {
             throw new IllegalArgumentException("mongo must not be null");
         }
@@ -75,6 +84,7 @@ public final class Diffsert {
         this.writer = writer;
         this.removeTypeKey = removeTypeKey;
         this.auditingHandler = auditingHandler;
+        this.writeConcern = writeConcern;
         this.auditingByType = auditingByType;
     }
 
@@ -106,17 +116,31 @@ public final class Diffsert {
 
     /** Returns an instance for the same database with different options. */
     public Diffsert withOptions(DiffsertOptions newOptions) {
-        return new Diffsert(mongo, writer.withOptions(newOptions), removeTypeKey, auditingHandler, auditingByType);
+        return new Diffsert(mongo, writer.withOptions(newOptions), removeTypeKey, auditingHandler, writeConcern,
+                auditingByType);
     }
 
     /** Returns an instance that reports every write to {@code listener} (replacing the current one). */
     public Diffsert withListener(DiffsertListener listener) {
-        return new Diffsert(mongo, writer.withListener(listener), removeTypeKey, auditingHandler, auditingByType);
+        return new Diffsert(mongo, writer.withListener(listener), removeTypeKey, auditingHandler, writeConcern,
+                auditingByType);
     }
 
     /** Returns an instance that removes (default) or keeps Spring Data's type key in converted entities. */
     public Diffsert withTypeKeyRemoved(boolean remove) {
-        return new Diffsert(mongo, writer, remove, auditingHandler, auditingByType);
+        return new Diffsert(mongo, writer, remove, auditingHandler, writeConcern, auditingByType);
+    }
+
+    /**
+     * Returns an instance that writes with {@code writeConcern}, e.g. because the template has its own
+     * ({@code setWriteConcern}, {@code WriteConcernResolver}), which doesn't apply to Diffsert's writes. It must be
+     * acknowledged. Without it, the write concern of the client or database applies.
+     */
+    public Diffsert withWriteConcern(WriteConcern writeConcern) {
+        if (writeConcern == null) {
+            throw new IllegalArgumentException("writeConcern must not be null");
+        }
+        return new Diffsert(mongo, writer, removeTypeKey, auditingHandler, writeConcern, auditingByType);
     }
 
     /**
@@ -136,7 +160,7 @@ public final class Diffsert {
         if (auditingHandler == null) {
             throw new IllegalArgumentException("auditingHandler must not be null");
         }
-        return new Diffsert(mongo, writer, removeTypeKey, auditingHandler, auditingByType);
+        return new Diffsert(mongo, writer, removeTypeKey, auditingHandler, writeConcern, auditingByType);
     }
 
     // ---------------------------------------------------------------- single entity
@@ -297,7 +321,8 @@ public final class Diffsert {
     }
 
     private MongoCollection<Document> collection(String collectionName) {
-        return mongo.getCollection(collectionName);
+        MongoCollection<Document> collection = mongo.getCollection(collectionName);
+        return writeConcern == null ? collection : collection.withWriteConcern(writeConcern);
     }
 
     private String collectionNameOf(Class<?> type) {

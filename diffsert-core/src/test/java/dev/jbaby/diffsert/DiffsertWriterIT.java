@@ -26,6 +26,9 @@ import com.mongodb.WriteConcern;
 import com.mongodb.client.MongoClient;
 import com.mongodb.client.MongoClients;
 import com.mongodb.client.MongoCollection;
+import com.mongodb.client.model.Collation;
+import com.mongodb.client.model.CollationStrength;
+import com.mongodb.client.model.CreateCollectionOptions;
 import com.mongodb.client.model.IndexOptions;
 import com.mongodb.client.model.Indexes;
 import com.mongodb.client.model.changestream.ChangeStreamDocument;
@@ -155,6 +158,39 @@ class DiffsertWriterIT {
 
         assertEquals(1, events.size());
         assertEquals(List.of("name"), events.get(0).getUpdateDescription().getRemovedFields());
+    }
+
+    @Test
+    void preservedFieldMissingFromNewDocumentIsNoChange() {
+        // e.g. _createdAt written by another process: merged back at the end, it would differ in position only
+        Date createdAt = new Date();
+        Document existing = new Document("_id", "c1").append("_createdAt", createdAt).append("name", "Acme")
+                .append("city", "Berlin").append("jobRunId", "run-1");
+        collection.insertOne(existing);
+        Document incoming = new Document("_id", "c1").append("name", "Acme").append("city", "Berlin")
+                .append("jobRunId", "run-2");
+
+        var events = eventsDuring(() -> assertEquals(WriteOutcome.UNCHANGED, writer.upsert(collection, incoming)));
+
+        assertEquals(List.of(), events);
+        assertEquals(List.copyOf(existing.keySet()), List.copyOf(stored("c1").keySet()));
+
+        // with a real change in replace mode, it is written last
+        assertEquals(WriteOutcome.UPDATED, writer.upsert(collection, with(incoming, "city", "Hamburg")));
+        assertEquals(createdAt, stored("c1").get("_createdAt"));
+        assertEquals("_createdAt", List.copyOf(stored("c1").keySet()).getLast());
+    }
+
+    @Test
+    void preservedFieldMissingFromStoredDocumentIsAdded() {
+        Document a = customer("c1", "Acme", "Berlin");
+        Document withoutCreatedAt = new Document(a);
+        withoutCreatedAt.remove("_createdAt");
+        collection.insertOne(withoutCreatedAt);
+
+        assertEquals(WriteOutcome.UPDATED, writer.upsert(collection, a));
+        assertEquals(a, stored("c1"));
+        assertEquals(WriteOutcome.UNCHANGED, writer.upsert(collection, nextRun(a)));
     }
 
     @Test
@@ -374,6 +410,23 @@ class DiffsertWriterIT {
 
         assertEquals(WriteOutcome.UPDATED, new DiffsertWriter().upsert(collection, with(a, "count", 1L)));
         assertEquals(Long.class, stored("c1").get("count").getClass());
+    }
+
+    @Test
+    void caseOnlyChangeCountsAsUnchangedWithCaseInsensitiveCollation() {
+        // the comparison uses the collection's default collation; the plain pipeline is diffed by the server
+        var db = client.getDatabase("test");
+        db.getCollection("caseless").drop();
+        db.createCollection("caseless", new CreateCollectionOptions().collation(
+                Collation.builder().locale("en").collationStrength(CollationStrength.SECONDARY).build()));
+        MongoCollection<Document> caseless = db.getCollection("caseless");
+        Document a = customer("c1", "Acme", "Berlin");
+        writer.upsert(caseless, a);
+
+        assertEquals(WriteOutcome.UNCHANGED, writer.upsert(caseless, with(a, "name", "ACME")));
+        assertEquals("Acme", caseless.find().first().getString("name"));
+        assertEquals(WriteOutcome.UPDATED, new DiffsertWriter().upsert(caseless, with(a, "name", "ACME")));
+        assertEquals("ACME", caseless.find().first().getString("name"));
     }
 
     @Test
