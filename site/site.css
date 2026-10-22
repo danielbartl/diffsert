@@ -1,5 +1,5 @@
 /* Shared by all pages of the Diffsert site: color tokens (light and dark), base type, header, inline code,
-   tables, code blocks and footer. Page-specific styles live in each page. */
+   tables, code blocks, the change explorer and footer. Page-specific styles live in each page. */
 :root {
   --paper: #F2F4F8;
   --surface: #FFFFFF;
@@ -169,6 +169,15 @@ code.inline, p code, li code, td code {
   padding: 0.05em 0.35em;
   white-space: nowrap;
 }
+/* On phones, long inline code wraps (at spaces, or anywhere if one token is too wide) instead of overflowing. */
+@media (max-width: 600px) {
+  code.inline, p code, li code {
+    white-space: normal;
+    overflow-wrap: anywhere;
+    -webkit-box-decoration-break: clone;
+    box-decoration-break: clone;
+  }
+}
 
 /* ---------- tables ---------- */
 .table-wrap { overflow-x: auto; margin-top: 2rem; border: 1px solid var(--rule); border-radius: var(--radius); background: var(--surface); }
@@ -211,6 +220,82 @@ th { font: 600 0.75rem/1.3 var(--mono); letter-spacing: 0.06em; text-transform: 
 .code .c { color: var(--code-dim); font-style: italic; }
 .code .t { color: #F2C98B; }
 .code-stack { display: grid; gap: 1rem; min-width: 0; }
+
+/* ---------- change explorer (built by site.js) ---------- */
+.sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
+.explorer { margin: 2rem 0 0; display: grid; gap: 1rem; min-width: 0; }
+.explorer figcaption { color: var(--ink-2); max-width: var(--measure); }
+.explorer .ex-config { font: 500 0.78rem/1.5 var(--mono); color: var(--ink-3); margin: 0; max-width: none; }
+.ex-config b { color: var(--ink); font-weight: 600; }
+.ex-tabs { display: flex; flex-wrap: wrap; gap: 0.4rem; }
+.ex-tab {
+  font: 600 0.85rem/1 var(--body);
+  padding: 0.55rem 0.85rem;
+  border: 1px solid var(--rule);
+  border-radius: 999px;
+  background: var(--surface);
+  color: var(--ink-2);
+  cursor: pointer;
+}
+.ex-tab:hover { color: var(--ink); border-color: var(--ink-3); }
+.ex-tab[aria-selected="true"] { background: var(--ink); color: var(--paper); border-color: var(--ink); }
+.ex-panel { background: var(--surface); border: 1px solid var(--rule); border-radius: var(--radius); min-width: 0; overflow: hidden; }
+.ex-scroll { overflow-x: auto; }
+.explorer .ex-table { min-width: 31rem; font-size: 0.82rem; }
+.ex-table th { padding: 0.55rem 0.9rem; }
+.ex-table td { padding: 0.45rem 0.9rem; font-family: var(--mono); vertical-align: baseline; white-space: nowrap; }
+.ex-name { font-weight: 600; }
+.ex-role {
+  font: 600 0.6rem/1 var(--mono);
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--ink-3);
+  border: 1px solid var(--rule);
+  border-radius: 3px;
+  padding: 0.2rem 0.35rem;
+  margin-left: 0.5rem;
+  position: relative;
+  top: -0.1em;
+}
+.ex-missing { color: var(--ink-3); }
+.ex-v.change, .ex-missing.change { background: var(--hl); color: var(--hl-ink); border-radius: 2px; padding-inline: 0.25em; }
+.ex-v.skip { text-decoration: underline dotted var(--ink-3); text-decoration-thickness: 2px; text-underline-offset: 4px; }
+.ex-v.removed { color: var(--replace); text-decoration: line-through; }
+.ex-v.ev::after {
+  content: "";
+  display: inline-block;
+  width: 0.45rem;
+  height: 0.45rem;
+  margin-left: 0.45rem;
+  border-radius: 50%;
+  background: var(--ink);
+  vertical-align: 0.05em;
+}
+.ex-note { font: 500 0.7rem/1 var(--mono); color: var(--ink-3); margin-left: 0.5rem; }
+.ex-after.kept { color: var(--ink-3); }
+.ex-verdict { border-top: 1px solid var(--rule); padding: 0.9rem 1rem 1rem; display: grid; gap: 0.6rem; }
+.explorer .ex-result { display: flex; flex-wrap: wrap; gap: 0.5rem 0.9rem; align-items: center; margin: 0; }
+.ex-outcome { font: 700 0.72rem/1 var(--mono); letter-spacing: 0.06em; padding: 0.35rem 0.55rem; border-radius: 3px; }
+.ex-outcome.updated { background: var(--hl); color: var(--hl-ink); }
+.ex-outcome.inserted { background: var(--insert); color: var(--surface); }
+.ex-outcome.unchanged { border: 1.5px dashed var(--ink-3); color: var(--ink-3); padding: 0.25rem 0.45rem; }
+.ex-event { font: 500 0.8rem/1.5 var(--mono); color: var(--ink); overflow-wrap: anywhere; }
+.explorer .ex-why { margin: 0; color: var(--ink-2); font-size: 0.95rem; max-width: var(--measure); }
+.explorer .ex-legend { list-style: none; margin: 0; padding: 0; display: flex; flex-wrap: wrap; gap: 0.4rem 1.25rem; font: 500 0.75rem/1.4 var(--mono); color: var(--ink-3); }
+.explorer .ex-legend li { margin: 0; display: inline-flex; align-items: center; gap: 0.45rem; }
+.ex-key { display: inline-block; width: 1.1rem; height: 0.75rem; border-radius: 2px; }
+.ex-key.change { background: var(--hl); }
+.ex-key.skip { border-bottom: 2px dotted var(--ink-3); border-radius: 0; height: 0.5rem; }
+.ex-key.ev { width: 0.45rem; height: 0.45rem; border-radius: 50%; background: var(--ink); }
+.ex-key.removed { height: 2px; background: var(--replace); }
+@media (max-width: 600px) {
+  .explorer .ex-table { min-width: 0; font-size: 0.72rem; }
+  .ex-table th { padding: 0.45rem 0.4rem; font-size: 0.62rem; white-space: normal; }
+  .ex-table td { padding: 0.4rem; }
+  .ex-table th:first-child, .ex-table td:first-child { padding-left: 0.7rem; }
+  .ex-role, .ex-note { display: block; width: fit-content; margin: 0.2rem 0 0; top: 0; }
+  .ex-v.ev::after { margin-left: 0.3rem; }
+}
 
 /* ---------- footer ---------- */
 footer { border-top: 1px solid var(--rule); padding-block: 2.5rem 3rem; }

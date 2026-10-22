@@ -51,9 +51,10 @@ The result is the same document as with a replace, but MongoDB 5.0+ compares the
 writes only the difference to the oplog. Change streams then report an `update` event with just the changed fields,
 and an identical result is a no-op. `$literal` ensures values starting with `$` are never treated as expressions.
 
-With ignored or preserved fields configured, the pipeline also compares the new document with the stored one while
-leaving out the ignored fields, and keeps the stored document unchanged if nothing else differs. Preserved fields are
-copied back from the stored document. The exact pipeline is documented in `DiffsertWriter.buildPipeline`.
+With ignored, preserved or version fields configured, the pipeline also compares the new document with the stored
+one while leaving out the ignored fields, the version field and the preserved fields the stored document already has,
+and keeps the stored document unchanged if nothing else differs. Preserved fields are copied back from the stored
+document. The exact pipeline is documented in `DiffsertWriter.buildPipeline`.
 
 ## Requirements and supported versions
 

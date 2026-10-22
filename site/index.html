@@ -212,6 +212,11 @@ td.good strong { font-weight: 600; }
 .steps h3 { font-size: 1.1rem; font-weight: 700; font-stretch: 100%; line-height: 1.3; }
 .steps p { color: var(--ink-2); font-size: 0.98rem; }
 
+/* ---------- what counts as a change ---------- */
+.sec-head.sub { margin-top: clamp(3rem, 6vw, 4.5rem); }
+.sec-head.sub h3 { font-size: var(--step-2); font-weight: 800; font-stretch: 108%; letter-spacing: -0.015em; }
+#changes { scroll-margin-top: 5rem; }
+
 /* ---------- quick start ---------- */
 .tabs { display: flex; flex-wrap: wrap; gap: 0.25rem; margin-top: 2rem; border-bottom: 1px solid var(--rule); }
 .tab {
@@ -427,8 +432,8 @@ td.good strong { font-weight: 600; }
             <p>Fields like <code>_createdAt</code> keep their stored value once set. On the first insert, the new value is used.</p>
           </li>
           <li>
-            <h3>Compare without the ignored fields</h3>
-            <p>If only <code>jobRunId</code> or <code>_updatedAt</code> differ, the pipeline returns the stored document unchanged. MongoDB sees a no-op: matched, not modified, no event.</p>
+            <h3>Compare without ignored and preserved fields</h3>
+            <p>If only <code>jobRunId</code> or <code>_updatedAt</code> differ, the pipeline returns the stored document unchanged. Preserved fields are left out too, since their stored value is kept anyway. MongoDB sees a no-op: matched, not modified, no event.</p>
           </li>
           <li>
             <h3>MongoDB logs the delta</h3>
@@ -445,8 +450,9 @@ td.good strong { font-weight: 600; }
       <span class="k">vars</span>: { <span class="k">result</span>: <span class="t">&lt;incoming + stored _createdAt&gt;</span> },
       <span class="k">in</span>: { <span class="k">$cond</span>: {
         <span class="k">if</span>: { <span class="k">$and</span>: [ <span class="t">&lt;document existed&gt;</span>,
-              { <span class="k">$eq</span>: [ <span class="t">&lt;$$ROOT minus ignored fields&gt;</span>,
-                       <span class="t">&lt;$$result minus ignored fields&gt;</span> ] } ] },
+              <span class="t">&lt;no preserved field added&gt;</span>,
+              { <span class="k">$eq</span>: [ <span class="t">&lt;$$ROOT minus ignored, preserved&gt;</span>,
+                       <span class="t">&lt;$$result minus ignored, preserved&gt;</span> ] } ] },
         <span class="k">then</span>: <span class="s">"$$ROOT"</span>,     <span class="c">// nothing relevant changed: no-op</span>
         <span class="k">else</span>: <span class="s">"$$result"</span>
       } } } } } } }]</code></pre>
@@ -460,6 +466,17 @@ td.good strong { font-weight: 600; }
           </div>
         </div>
       </div>
+
+      <div class="sec-head sub" id="changes">
+        <h3>What counts as a change</h3>
+        <p>
+          One stored customer and the version the next run writes, field by field. Pick a situation to see what
+          Diffsert compares, what it writes, and which event MongoDB emits.
+        </p>
+      </div>
+      <figure class="explorer" data-scenarios="new metadata city removed order created">
+        <figcaption class="sr">Change explorer: for each situation, the stored and the new document field by field, the document after the write, the outcome and the change event.</figcaption>
+      </figure>
     </div>
   </section>
 
@@ -505,7 +522,7 @@ WriteOutcome outcome = diffsert.upsert(dto);
           </div>
         </div>
         <div class="prose">
-          <p>The starter creates a <code>Diffsert</code> bean from the application's <code>MongoTemplate</code> and the <code>diffsert.*</code> properties.</p>
+          <p>The starter creates a <code>Diffsert</code> bean from the application's <code>MongoTemplate</code> (a single one, or the <code>@Primary</code> one) and the <code>diffsert.*</code> properties.</p>
           <ul>
             <li>With Micrometer, written documents are counted as <code>diffsert.documents</code>, tagged with <code>collection</code> and <code>outcome</code>.</li>
             <li>Every <code>DiffsertListener</code> bean is called after each write. A failing listener is logged and doesn't affect the write.</li>
@@ -544,6 +561,8 @@ diffsert.upsertAll(dtos, <span class="s">"customers"</span>);         <span clas
             <li><code>withAuditing(auditingHandler)</code> handles <code>@CreatedDate</code>, <code>@LastModifiedDate</code> and friends; <code>Document</code>s are written as they are.</li>
             <li>A <code>@Version</code> property goes up by one with every real change, starting where <code>save()</code> starts, so optimistic locking in your application notices what Diffsert changed.</li>
             <li><code>update</code> and <code>updateAll</code> never insert.</li>
+            <li>Only the conversion is like <code>save()</code>: entity callbacks, validation and save events don't run.</li>
+            <li>Writes use the write concern of the client or database. One set on the template doesn't apply; use <code>withWriteConcern(...)</code>.</li>
             <li>Writes join a Spring-managed transaction (<code>MongoTransactionManager</code>, e.g. with <code>@Transactional</code>). Listeners and metrics are called when a write runs, so they also count writes that are rolled back later.</li>
             <li><code>toWriteModels(...)</code> returns the write models without executing them, for sessions without Spring or your own <code>bulkWrite</code>.</li>
           </ul>
@@ -710,6 +729,10 @@ BatchWriteResult result = writer.upsertAll(customers, documents);</code></pre>
           <p>A changed element appears as <code>tags.2</code>, a nested field as <code>address.street</code>. Shortened arrays appear in <code>truncatedArrays</code>.</p>
         </li>
         <li>
+          <h3>Collations apply to the comparison</h3>
+          <p>On a collection with a case-insensitive default collation, a change in case only, such as <code>Acme</code> to <code>ACME</code>, counts as unchanged when ignored, preserved or version fields are configured. Without them, it is written.</p>
+        </li>
+        <li>
           <h3>Top-level fields, matched by <code>_id</code></h3>
           <p>Ignored and preserved fields must be top-level. Documents are matched by <code>_id</code> only, and every document needs one.</p>
         </li>
@@ -805,7 +828,7 @@ BatchWriteResult result = writer.upsertAll(customers, documents);</code></pre>
   if (reduced) replay.hidden = true;
 
   // ---------- tabs ----------
-  var tabs = Array.prototype.slice.call(document.querySelectorAll('[role="tab"]'));
+  var tabs = Array.prototype.slice.call(document.querySelectorAll('.tabs [role="tab"]'));
   function select(tab) {
     tabs.forEach(function (t) {
       var on = t === tab;

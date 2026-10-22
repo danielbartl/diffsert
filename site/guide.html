@@ -16,6 +16,7 @@
 <style>
 /* Guide: one reading column with a sticky table of contents; the highlighter marks the current section. */
 .nav a[aria-current="page"] { color: var(--ink); font-weight: 600; }
+@media (max-width: 420px) { .nav .home { display: none; } } /* the logo links home too */
 
 .guide {
   display: grid;
@@ -112,6 +113,62 @@
   vertical-align: middle;
 }
 h2 .since, h3 .since { margin-left: 0.5rem; position: relative; top: -0.15em; }
+/* ---------- decision flow: steps down the left, outcomes to the right (stacked on phones) ---------- */
+.flow { margin: 1.75rem 0 0; --spine: 19rem; --cx: calc(var(--spine) / 2); }
+.doc .flow-steps { list-style: none; margin: 0; padding: 0; max-width: none; color: var(--ink); }
+.flow-steps .fs-step {
+  position: relative;
+  display: grid;
+  grid-template-columns: minmax(0, var(--spine)) minmax(0, 21.5rem);
+  align-items: center;
+  margin: 0;
+  padding-top: 1.75rem;
+}
+.flow-steps .fs-step:first-child { padding-top: 0; }
+.fs-step + .fs-step::before, .fs-step + .fs-step::after { content: ""; position: absolute; left: var(--cx); }
+.fs-step + .fs-step::before { top: 0; height: 1.4rem; width: 1.5px; margin-left: -0.75px; background: var(--ink-3); }
+.fs-step + .fs-step::after { top: calc(1.75rem - 6px); margin-left: -5px; border: 5px solid transparent; border-top: 6px solid var(--ink-3); border-bottom: 0; }
+.fs-edge { position: absolute; top: 0.2rem; left: calc(var(--cx) + 0.6rem); font: 600 0.7rem/1 var(--mono); color: var(--ink-3); }
+.fs-box {
+  display: block;
+  background: var(--surface);
+  border: 1.5px solid var(--rule);
+  border-radius: var(--radius);
+  padding: 0.7rem 1rem;
+  text-align: center;
+  font-size: 0.92rem;
+  line-height: 1.35;
+}
+.fs-ask .fs-box { background: var(--paper); border-color: var(--ink-3); border-radius: 999px; font-weight: 700; }
+.fs-box small, .fs-out small { display: block; font-weight: 400; font-size: 0.75rem; color: var(--ink-3); margin-top: 0.15rem; }
+.fs-branch { display: grid; grid-template-columns: 4.5rem minmax(0, 1fr); align-items: center; }
+.fs-label { position: relative; padding: 0 0.6rem 0.4rem 0; text-align: center; font: 600 0.7rem/1 var(--mono); color: var(--ink-3); }
+.fs-label::before { content: ""; position: absolute; left: 0; right: 6px; bottom: 0; height: 1.5px; background: var(--ink-3); }
+.fs-label::after { content: ""; position: absolute; right: 0; bottom: -4.25px; border: 5px solid transparent; border-left: 6px solid var(--ink-3); border-right: 0; }
+.fs-out {
+  display: block;
+  background: var(--surface);
+  border: 1.5px solid var(--rule);
+  border-radius: var(--radius);
+  padding: 0.6rem 0.9rem;
+  text-align: center;
+}
+.fs-out b { font: 600 0.8rem/1.4 var(--mono); }
+.fs-out.inserted b { color: var(--insert); }
+.fs-out.unchanged { background: none; border-style: dashed; border-color: var(--ink-3); }
+.fs-out.updated { background: var(--hl); border-color: var(--hl); color: var(--hl-ink); }
+.fs-out.updated small { color: var(--hl-ink); }
+.fs-box code, .fs-out code { font-size: 0.9em; }
+.flow figcaption { margin-top: 1rem; font-size: var(--step--1); color: var(--ink-3); max-width: var(--measure); }
+/* phones: the main line runs down the left, past the outcomes, which branch off it */
+@media (max-width: 640px) {
+  .flow { --cx: 1.25rem; }
+  .flow-steps .fs-step { grid-template-columns: minmax(0, 1fr); }
+  .fs-branch { display: block; position: relative; margin: 0.6rem 0 0 3.9rem; }
+  .fs-branch::before { content: ""; position: absolute; left: calc(-2.65rem - 0.75px); top: -0.6rem; bottom: 50%; width: 1.5px; background: var(--ink-3); }
+  .fs-ask .fs-branch::before { bottom: 0; }
+  .fs-label { position: absolute; left: -2.65rem; width: 2.65rem; top: 50%; transform: translateY(-100%); padding: 0 0.5rem 0.35rem 0.2rem; }
+}
 .anchor { margin-left: 0.45rem; color: var(--ink-3); text-decoration: none; font-weight: 500; opacity: 0; }
 h2:hover .anchor, h3:hover .anchor, .anchor:focus-visible { opacity: 1; }
 @media (hover: none) { .anchor { display: none; } }
@@ -123,7 +180,7 @@ h2:hover .anchor, h3:hover .anchor, .anchor:focus-visible { opacity: 1; }
   <div class="wrap">
     <a class="mark" href="./" aria-label="Diffsert home"><span class="hl">diff</span>sert</a>
     <nav class="nav" aria-label="Site">
-      <a href="./">Overview</a>
+      <a class="home" href="./">Overview</a>
       <a href="guide.html" aria-current="page">Guide</a>
       <a class="gh" href="https://github.com/danielbartl/diffsert">
         <svg width="16" height="16" viewBox="0 0 16 16" aria-hidden="true" fill="currentColor"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z"/></svg>
@@ -223,10 +280,34 @@ h2:hover .anchor, h3:hover .anchor, .anchor:focus-visible { opacity: 1; }
     <p>With ignored, preserved or version fields configured, the pipeline does more before anything is written:</p>
     <ol>
       <li>It copies the stored values of <a href="#preserved">preserved fields</a> into the new document.</li>
-      <li>It compares the result with the stored document, leaving out the <a href="#ignored">ignored fields</a> and the <a href="#versions">version field</a>.</li>
+      <li>It compares the result with the stored document, leaving out the <a href="#ignored">ignored fields</a>, the <a href="#versions">version field</a> and the preserved fields the stored document already has, whose values come from there anyway.</li>
       <li>If nothing else differs, it keeps the stored document as it is. That is a no-op, even though the ignored fields differ.</li>
       <li>Otherwise it writes the result, with the version field incremented if there is one.</li>
     </ol>
+    <figure class="flow">
+      <ol class="flow-steps" aria-label="One write, step by step">
+        <li class="fs-step"><span class="fs-box">Find the stored document by <code>_id</code></span></li>
+        <li class="fs-step fs-ask">
+          <span class="fs-box">Stored document found?</span>
+          <span class="fs-branch"><span class="fs-label">no</span><span class="fs-out inserted"><b>INSERTED · insert event</b><small>with <code>update</code>: NOT_FOUND, no event</small></span></span>
+        </li>
+        <li class="fs-step"><span class="fs-edge">yes</span><span class="fs-box">Copy back the stored preserved fields</span></li>
+        <li class="fs-step fs-ask">
+          <span class="fs-box">Anything else differs?<small>ignored, version and preserved fields left out</small></span>
+          <span class="fs-branch"><span class="fs-label">no</span><span class="fs-out unchanged"><b>UNCHANGED · no event</b><small>the stored document stays as it is</small></span></span>
+        </li>
+        <li class="fs-step"><span class="fs-edge">yes</span><span class="fs-box">Write the result, version + 1</span></li>
+        <li class="fs-step">
+          <span class="fs-box">MongoDB diffs it against the stored one</span>
+          <span class="fs-branch"><span class="fs-label">delta</span><span class="fs-out updated"><b>UPDATED · update event</b><small>with only the changed fields</small></span></span>
+        </li>
+      </ol>
+      <figcaption>
+        What one write goes through. The comparison happens only with ignored, preserved or version fields; without
+        them, the server's own diff decides, and an identical document is a no-op as well. For small documents or
+        near-total rewrites, MongoDB logs a <code class="inline">replace</code> instead of an <code class="inline">update</code>.
+      </figcaption>
+    </figure>
     <p>
       <code>DiffsertWriter.buildPipeline(document)</code> returns the exact pipeline for a document; its Javadoc
       explains each stage. What the server reports decides the outcome of a write:
@@ -428,8 +509,13 @@ BatchWriteResult result = writer.upsertAll(customers, documents);</code></pre>
     <h2 id="changes">What counts as a change</h2>
     <p>
       MongoDB compares the document Diffsert would write with the stored one. Every difference counts, except in
-      ignored fields and the version field. In replace mode, the default:
+      ignored fields, the version field and preserved fields the stored document already has. Field by field, for
+      one customer document:
     </p>
+    <figure class="explorer" data-scenarios="new metadata city removed order created nulls numbers merge">
+      <figcaption class="sr">Change explorer: for each situation, the stored and the new document field by field, the document after the write, the outcome and the change event.</figcaption>
+    </figure>
+    <p>More cases, in replace mode, the default:</p>
     <div class="table-wrap">
       <table>
         <thead><tr><th scope="col">Stored</th><th scope="col">New</th><th scope="col">Result</th></tr></thead>

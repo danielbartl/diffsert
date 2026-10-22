@@ -85,9 +85,14 @@ so downstream logic fired for every document even when nothing relevant changed.
   and 9.0.2 (2026-10-08).
 - Website (no build), deployed to https://danielbartl.github.io/diffsert/ by `.github/workflows/pages.yml` on changes
   under `site/`: `site/index.html` (landing page), `site/guide.html` (user guide: every option, Spring integration,
-  events, errors, recipes, troubleshooting; 0.2.0 features marked), shared `site/site.css` (color tokens, header, code,
-  tables, footer) and `site/site.js` (theme toggle, copy buttons). Keep README, landing page and guide in sync with
-  the code. Visual check: headless `chromium --screenshot` (dark theme via `localStorage` "diffsert-theme").
+  events, errors, recipes, troubleshooting; 0.2.0 and 0.3.0 features marked), shared `site/site.css` (color tokens,
+  header, code, tables, change explorer, footer) and `site/site.js` (theme toggle, copy buttons, change explorer).
+  The change explorer (`<figure class="explorer" data-scenarios="...">`, landing "How it works" and guide "What counts
+  as a change") shows one customer document field by field per scenario; its outcomes and `updatedFields` /
+  `removedFields` were taken from MongoDB 7.0 with the real writer (2026-10-22), so re-probe them when write behavior
+  changes. The guide's decision flow ("How it works") is HTML/CSS, not SVG, so it can stack on phones.
+  Keep README, landing page and guide in sync with the code. Visual check: headless `chromium --screenshot` (dark
+  theme via `localStorage` "diffsert-theme"); clicks can be tested with `--dump-dom` and an injected script.
 - Tests encode the intended behavior: do not weaken assertions to make them pass without understanding why they fail.
 
 ## Next steps (in order)
