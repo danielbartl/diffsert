@@ -101,9 +101,11 @@ BatchWriteResult result = diffsert.upsertAll(dtos, CustomerDto.class);
 WriteOutcome outcome = diffsert.upsert(dto);   // INSERTED / UPDATED / UNCHANGED / NOT_FOUND
 ```
 
-To configure options in code, define a `DiffsertOptions` bean; it takes precedence over the properties. Defining
-your own `Diffsert` bean replaces the auto-configured one, *including* the listener and metrics wiring; attach them
-yourself with `diffsert.withListener(diffsertMetrics)` if needed.
+To configure options in code, define a `DiffsertOptions` bean; it takes precedence over the properties (with several,
+only a `@Primary` one does). Defining your own `Diffsert` bean replaces the auto-configured one, *including* the
+listener and metrics wiring; attach them yourself with `diffsert.withListener(diffsertMetrics)` if needed. The
+auto-configured bean needs a single `MongoOperations` bean (or a `@Primary` one); with one template per database,
+define a `Diffsert` per template yourself.
 
 ### Spring Data
 
@@ -174,7 +176,8 @@ automatically; for `Document`s, configure it with `versionField("version")`.
 
 - It doesn't count as a change, and its incoming value is ignored, as is the version of the written entity (which is
   not updated either).
-- A real change sets it to the stored value + 1, keeping the stored `int`/`long` type. A no-op leaves it as it is.
+- A real change sets it to the stored value + 1, keeping the stored `int`/`long` type; a stored value that isn't a
+  number (or is a date) fails the write. A no-op leaves it as it is.
 - An insert, or a stored document without one, gets the initial value: 0, or 1 for primitive `@Version` types, as with
   `save()`. For `Document`s, `versionField("version", 1)` sets it.
 
@@ -241,6 +244,8 @@ carries depends on its `capture.mode`:
 - **Driver exceptions are not translated** to Spring's `DataAccessException`, so a `MongoBulkWriteException` can be
   inspected via `getWriteErrors()`. Documents written before or besides the failed ones are still reported to
   listeners and metrics.
+- **The write concern must be acknowledged.** With `w: 0`, a write doesn't tell what it did, so Diffsert rejects such
+  a collection before writing.
 
 ## Building
 

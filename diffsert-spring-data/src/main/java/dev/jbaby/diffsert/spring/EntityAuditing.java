@@ -60,14 +60,20 @@ record EntityAuditing(
 
     /**
      * Marks {@code bean} as created; whether the document is new is only known on the server, where preserved fields
-     * keep their stored value. Also marks it as modified if the handler doesn't do that on creation
-     * ({@code modifyOnCreate = false}), so a real change never removes the stored modification fields.
+     * keep their stored value. Also marks it as modified if marking it as created left the modification fields as
+     * they were ({@code modifyOnCreate = false}), so a real change neither removes them nor writes stale values.
      */
     Object mark(AuditingHandler handler, Object bean) {
+        // a snapshot: mutable entities are changed in place
+        List<Object> modificationBefore = modifiedValues(bean);
         Object marked = handler.markCreated(bean);
-        PersistentPropertyAccessor<Object> accessor = entity.getPropertyAccessor(marked);
-        boolean modificationMissing = modified.stream().allMatch(p -> accessor.getProperty(p) == null);
-        return !modified.isEmpty() && modificationMissing ? handler.markModified(marked) : marked;
+        boolean modificationUntouched = modifiedValues(marked).equals(modificationBefore);
+        return !modified.isEmpty() && modificationUntouched ? handler.markModified(marked) : marked;
+    }
+
+    private List<Object> modifiedValues(Object bean) {
+        PersistentPropertyAccessor<Object> accessor = entity.getPropertyAccessor(bean);
+        return modified.stream().map(accessor::getProperty).toList();
     }
 
     @SafeVarargs

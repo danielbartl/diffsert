@@ -170,6 +170,12 @@ class DiffsertIT {
     }
 
     @Test
+    void rejectsNullEntity() {
+        assertThrows(IllegalArgumentException.class, () -> writer.upsert(null));
+        assertThrows(IllegalArgumentException.class, () -> writer.update(null));
+    }
+
+    @Test
     void insertsNewDocument() {
         Customer a = customer("c1", "Acme", "Berlin");
 
@@ -410,6 +416,24 @@ class DiffsertIT {
 
         // whether a document is new is only known on the server, so a real change must not remove these
         assertEquals(Date.from(T2), storedOrder("o1").get("_updatedAt"));
+        assertEquals(Date.from(T1), storedOrder("o1").get("_createdAt"));
+    }
+
+    @Test
+    void auditingReplacesLoadedModifiedFieldsWithoutModifyOnCreate() {
+        AuditingHandler handler = auditingHandler();
+        handler.setModifyOnCreation(false);
+        Diffsert audited = new Diffsert(template).withAuditing(handler);
+        audited.upsert(Order.of("o1", "open"));
+        Order loaded = template.findById("o1", Order.class);
+        now = T2;
+        auditor = "bob";
+
+        audited.upsert(new Order(loaded.id(), "shipped", loaded.createdAt(), loaded.createdBy(), loaded.updatedAt(),
+                loaded.updatedBy()));
+
+        assertEquals(Date.from(T2), storedOrder("o1").get("_updatedAt"), "not the loaded value");
+        assertEquals("bob", storedOrder("o1").getString("updatedBy"));
         assertEquals(Date.from(T1), storedOrder("o1").get("_createdAt"));
     }
 

@@ -56,6 +56,7 @@ public final class Diffsert {
     private final boolean removeTypeKey;
     private final AuditingHandler auditingHandler;
     private final Map<Class<?>, EntityAuditing> auditingByType;
+    private final Map<Class<?>, DiffsertWriter> writerByType = new ConcurrentHashMap<>();
 
     public Diffsert(MongoOperations mongo) {
         this(mongo, DiffsertOptions.defaults());
@@ -100,7 +101,7 @@ public final class Diffsert {
      *                                  version field is configured
      */
     public DiffsertOptions optionsFor(Class<?> type) {
-        return withVersionFieldOf(type, auditingOf(type).applyTo(writer.options()));
+        return writerFor(type).options();
     }
 
     /** Returns an instance for the same database with different options. */
@@ -142,7 +143,7 @@ public final class Diffsert {
 
     /** Inserts or updates one entity in the collection mapped to its class. */
     public WriteOutcome upsert(Object entity) {
-        return upsert(entity, collectionNameOf(entity.getClass()));
+        return upsert(entity, collectionNameOf(typeOf(entity)));
     }
 
     public WriteOutcome upsert(Object entity, String collectionName) {
@@ -152,7 +153,7 @@ public final class Diffsert {
 
     /** Updates one entity if it exists; never inserts. */
     public WriteOutcome update(Object entity) {
-        return update(entity, collectionNameOf(entity.getClass()));
+        return update(entity, collectionNameOf(typeOf(entity)));
     }
 
     public WriteOutcome update(Object entity, String collectionName) {
@@ -228,22 +229,24 @@ public final class Diffsert {
             return new Batch(writer, List.of());
         }
         List<Document> docs = new ArrayList<>(entities.size());
-        DiffsertOptions batchOptions = null;
+        DiffsertWriter batchWriter = null;
         for (Object entity : entities) {
             docs.add(toDocument(entity));
-            DiffsertOptions entityOptions = optionsFor(entity.getClass());
-            if (batchOptions == null) {
-                batchOptions = entityOptions;
-            } else if (!batchOptions.equals(entityOptions)) {
+            DiffsertWriter entityWriter = writerFor(entity.getClass());
+            if (batchWriter == null) {
+                batchWriter = entityWriter;
+            } else if (entityWriter != batchWriter && !entityWriter.options().equals(batchWriter.options())) {
                 throw new IllegalArgumentException("entities in one batch must have the same auditing and version "
                         + "fields; write " + entity.getClass().getName() + " in a separate batch");
             }
         }
-        return new Batch(writerWith(batchOptions), docs);
+        return new Batch(batchWriter, docs);
     }
 
+    /** The writer with the options for entities of {@code type}, derived once per type. */
     private DiffsertWriter writerFor(Class<?> type) {
-        return writerWith(optionsFor(type));
+        return writerByType.computeIfAbsent(type,
+                t -> writerWith(withVersionFieldOf(t, auditingOf(t).applyTo(writer.options()))));
     }
 
     private DiffsertWriter writerWith(DiffsertOptions options) {
@@ -284,6 +287,13 @@ public final class Diffsert {
         }
         return auditingByType.computeIfAbsent(type,
                 t -> EntityAuditing.of(mongo.getConverter().getMappingContext(), t));
+    }
+
+    private static Class<?> typeOf(Object entity) {
+        if (entity == null) {
+            throw new IllegalArgumentException("entity must not be null");
+        }
+        return entity.getClass();
     }
 
     private MongoCollection<Document> collection(String collectionName) {

@@ -573,7 +573,7 @@ BatchWriteResult result = writer.upsertAll(customers, documents);</code></pre>
         <div class="prose">
           <p><code>diffsert-core</code> depends only on the MongoDB Java driver. It takes plain <code>Document</code>s with an <code>_id</code>.</p>
           <ul>
-            <li>The collection is passed per call, so its codecs and write concern apply as you configured them.</li>
+            <li>The collection is passed per call, so its codecs and write concern apply as you configured them (acknowledged write concerns only).</li>
             <li><code>buildPipeline(document)</code> returns the update pipeline itself, if you want to run it your own way.</li>
             <li><code>withListener(...)</code> reports every write, including the succeeded part of a failed bulk write.</li>
           </ul>

@@ -13,6 +13,7 @@ import org.springframework.boot.test.context.FilteredClassLoader;
 import org.springframework.boot.test.context.runner.ApplicationContextRunner;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
+import org.springframework.context.annotation.Primary;
 import org.springframework.data.annotation.Id;
 import org.springframework.data.annotation.LastModifiedDate;
 import org.springframework.data.auditing.AuditingHandler;
@@ -49,6 +50,26 @@ class DiffsertAutoConfigurationTest {
         @Bean
         MongoTemplate mongoTemplate(MongoClient client) {
             return new MongoTemplate(client, "test");
+        }
+    }
+
+    /** A second database, as in an application with one template per database. */
+    @Configuration(proxyBeanMethods = false)
+    static class OtherMongoTemplateConfig {
+
+        @Bean
+        MongoTemplate otherMongoTemplate(MongoClient client) {
+            return new MongoTemplate(client, "other");
+        }
+    }
+
+    @Configuration(proxyBeanMethods = false)
+    static class PrimaryMongoTemplateConfig {
+
+        @Bean
+        @Primary
+        MongoTemplate primaryMongoTemplate(MongoClient client) {
+            return new MongoTemplate(client, "primary");
         }
     }
 
@@ -117,6 +138,27 @@ class DiffsertAutoConfigurationTest {
     }
 
     @Test
+    void propertiesApplyWithSeveralOptionsBeans() {
+        // e.g. options for the application's own writers; none of them is meant for the auto-configured bean
+        runner.withUserConfiguration(MongoConfig.class)
+                .withBean("ordersOptions", DiffsertOptions.class, () -> DiffsertOptions.builder().merge().build())
+                .withBean("customersOptions", DiffsertOptions.class,
+                        () -> DiffsertOptions.builder().ordered(true).build())
+                .withPropertyValues("diffsert.ignore-fields=jobRunId")
+                .run(context -> assertThat(context.getBean(Diffsert.class).options().ignoredFields())
+                        .containsExactly("jobRunId"));
+    }
+
+    @Test
+    void primaryOptionsBeanWinsOverOthers() {
+        DiffsertOptions primary = DiffsertOptions.builder().merge().build();
+        runner.withUserConfiguration(MongoConfig.class)
+                .withBean("primaryOptions", DiffsertOptions.class, () -> primary, bd -> bd.setPrimary(true))
+                .withBean("otherOptions", DiffsertOptions.class, () -> DiffsertOptions.builder().ordered(true).build())
+                .run(context -> assertThat(context.getBean(Diffsert.class).options()).isEqualTo(primary));
+    }
+
+    @Test
     void usesMongoAuditingHandler() {
         runner.withUserConfiguration(MongoConfig.class, MongoAuditingConfig.class)
                 .run(context -> assertThat(context.getBean(Diffsert.class).optionsFor(AuditedCustomer.class)
@@ -174,6 +216,19 @@ class DiffsertAutoConfigurationTest {
     @Test
     void noDiffsertWithoutMongoOperations() {
         runner.run(context -> assertThat(context).doesNotHaveBean(Diffsert.class));
+    }
+
+    @Test
+    void noDiffsertWithSeveralMongoOperationsAndNoPrimary() {
+        runner.withUserConfiguration(MongoConfig.class, OtherMongoTemplateConfig.class)
+                .run(context -> assertThat(context).hasNotFailed().doesNotHaveBean(Diffsert.class));
+    }
+
+    @Test
+    void usesPrimaryMongoOperations() {
+        runner.withUserConfiguration(MongoConfig.class, OtherMongoTemplateConfig.class,
+                PrimaryMongoTemplateConfig.class)
+                .run(context -> assertThat(context).hasSingleBean(Diffsert.class));
     }
 
     @Test

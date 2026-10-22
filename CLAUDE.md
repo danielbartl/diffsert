@@ -23,7 +23,8 @@ so downstream logic fired for every document even when nothing relevant changed.
   `$$ROOT` is kept (no-op). Otherwise they are written along with the real changes.
 - `preservedFields` (e.g. `_createdAt`): merged back from the stored doc via `$mergeObjects` + `$type != "missing"`.
 - `versionField` (e.g. `version`): left out of the comparison like ignored fields, incoming value ignored; on a real
-  change set to stored + 1 (`$add` keeps int32/int64), or to `initialVersion` (Integer or Long) on insert / when the
+  change set to stored + 1 (`$multiply` by 1 first, so a non-number fails, dates included; `$add` keeps
+  int32/int64), or to `initialVersion` (Integer or Long) on insert / when the
   stored doc has none (missing or null). Like `MongoTemplate.updateFirst`, no version check of its own.
 - On an upserting insert, `$$ROOT` is `{_id: ...}`; the pipeline checks `$$ROOT != {_id: "$_id"}` so a new document is
   never reduced to just its `_id`.
@@ -37,18 +38,22 @@ so downstream logic fired for every document even when nothing relevant changed.
 
 - Multi-module build, parent `diffsert-parent` (Spring Boot BOM 4.0.8 imported, plugin versions pinned, Java 21 minimum):
   - `diffsert-core`, package `dev.jbaby.diffsert`, only `mongodb-driver-sync`: `DiffsertWriter` (pipeline + writes,
-    takes a `MongoCollection<Document>` per call), `DiffsertOptions` (immutable record + builder: mode, ignored,
+    takes a `MongoCollection<Document>` per call, rejects an unacknowledged write concern before writing because w:0
+    returns no outcome), `DiffsertOptions` (immutable record + builder: mode, ignored,
     preserved, ordered, versionField + initialVersion; the old 4-arg constructor is kept), `WriteOutcome`, `BatchWriteResult`, `DiffsertListener` (called after every write).
   - `diffsert-spring-data`, package `dev.jbaby.diffsert.spring`: `Diffsert` (entity conversion via `MongoConverter`,
     `withTypeKeyRemoved`, delegates to `DiffsertWriter`). `withAuditing(AuditingHandler)`: `EntityAuditing` derives
     preserved (`@CreatedDate/@CreatedBy`) and ignored (`@LastModifiedDate/@LastModifiedBy`) fields per entity type
-    (top-level only, nested ones rejected), added to the configured options (`optionsFor(type)`); entities are marked
-    with `markCreated` (+ `markModified` if `modifyOnCreate = false` left them empty). `Document`s never get derived
+    (top-level only, nested ones rejected), added to the configured options (`optionsFor(type)`, cached per type
+    with its writer); entities are marked with `markCreated` (+ `markModified` if `markCreated` left the modified
+    values as they were, i.e. `modifyOnCreate = false`, so loaded entities don't write stale values). `Document`s never get derived
     fields (the owner's own jobs write Jackson-built Documents). Always (no opt-in): an entity's `@Version` property
     becomes the version field, initial value as `save()` initializes it (1 for primitives, else 0; Integer for int
     types, else Long); a different configured version field is rejected. A batch must agree on the derived fields.
   - `diffsert-spring-boot-starter`, package `dev.jbaby.diffsert.boot`: `DiffsertAutoConfiguration` (after Boot 4's
-    `DataMongoAutoConfiguration`; `@ConditionalOnMissingBean`; a `DiffsertOptions` bean wins over properties; all
+    `DataMongoAutoConfiguration`; `@ConditionalOnMissingBean`; `@ConditionalOnSingleCandidate(MongoOperations)`, so
+    apps with one template per database get no bean instead of a startup failure; a unique (or `@Primary`)
+    `DiffsertOptions` bean wins over properties, several without a primary leave the properties in charge; all
     `DiffsertListener` beans are notified, each isolated: failures are logged, never thrown to the caller; uses the
     `mongoAuditingHandler` bean from `@EnableMongoAuditing`, by name, because JPA registers another handler),
     `DiffsertProperties` (`diffsert.mode/ignore-fields/preserve-fields/ordered/version-field/remove-type-key`), `DiffsertMetrics`

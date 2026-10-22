@@ -36,7 +36,8 @@ import com.mongodb.client.result.UpdateResult;
  * <p>
  * Works with plain driver {@link Document}s; every document must have an {@code _id}, which is written as the first
  * field wherever the document has it. The collection is passed per call, so its codec registry, write concern etc.
- * apply as configured by the caller.
+ * apply as configured by the caller. The write concern must be acknowledged: an unacknowledged write doesn't tell what
+ * it did, so it is rejected before anything is sent.
  * <p>
  * Driver exceptions such as {@link com.mongodb.MongoBulkWriteException} are thrown as-is, so failed operations can be
  * inspected via {@code getWriteErrors()}.
@@ -134,10 +135,11 @@ public final class DiffsertWriter {
      * }</pre>
      * The version field is set with
      * <pre>{@code
-     * { $cond: [ { $eq: [ { $ifNull: [ "$version", null ] }, null ] }, <initial>, { $add: [ "$version", 1 ] } ] }
+     * { $cond: [ { $eq: [ { $ifNull: [ "$version", null ] }, null ] }, <initial>,
+     *     { $add: [ { $multiply: [ "$version", 1 ] }, 1 ] } ] }
      * }</pre>
      * so it keeps its position in the incoming document (or is appended), and a stored non-numeric value fails the
-     * write.
+     * write ({@code $multiply} rejects dates, which {@code $add} alone would accept).
      * {@code $literal} makes sure values starting with {@code $} are never interpreted as expressions, and {@code _id}
      * is moved to the front of the document: MongoDB always stores it first, so anywhere else, the field order would
      * differ and every write would count as a change.
@@ -205,10 +207,12 @@ public final class DiffsertWriter {
             return result;
         }
         Object storedVersion = "$" + field;
+        // $multiply fails on anything but a number; $add alone would turn a stored date into date + 1 ms
+        Object storedNumber = new Document("$multiply", List.of(storedVersion, 1));
         Object nextVersion = new Document("$cond", List.of(
                 new Document("$eq", Arrays.asList(new Document("$ifNull", Arrays.asList(storedVersion, null)), null)),
                 options.initialVersion(),
-                new Document("$add", List.of(storedVersion, 1))));
+                new Document("$add", List.of(storedNumber, 1))));
         return new Document("$mergeObjects", List.of(result, new Document(field, nextVersion)));
     }
 
@@ -233,7 +237,16 @@ public final class DiffsertWriter {
         return id;
     }
 
+    /** Fails before writing if {@code collection} wouldn't tell what a write did (write concern {@code w: 0}). */
+    private static void requireAcknowledged(MongoCollection<Document> collection) {
+        if (!collection.getWriteConcern().isAcknowledged()) {
+            throw new IllegalArgumentException("collection " + collection.getNamespace() + " has an unacknowledged "
+                    + "write concern; Diffsert needs to know what each write did");
+        }
+    }
+
     private WriteOutcome writeOne(MongoCollection<Document> collection, Document doc, boolean upsert) {
+        requireAcknowledged(collection);
         UpdateResult r = collection.updateOne(
                 Filters.eq("_id", idOf(doc)),
                 buildPipeline(doc),
@@ -253,6 +266,7 @@ public final class DiffsertWriter {
 
     private BatchWriteResult writeAll(MongoCollection<Document> collection, Collection<? extends Document> docs,
             boolean upsert) {
+        requireAcknowledged(collection);
         if (docs == null || docs.isEmpty()) {
             return BatchWriteResult.empty();
         }

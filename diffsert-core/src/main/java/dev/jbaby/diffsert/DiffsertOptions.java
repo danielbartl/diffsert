@@ -1,8 +1,8 @@
 package dev.jbaby.diffsert;
 
+import java.util.Arrays;
 import java.util.Collections;
 import java.util.LinkedHashSet;
-import java.util.List;
 import java.util.Set;
 
 /**
@@ -20,7 +20,8 @@ import java.util.Set;
  *                        incoming value is ignored: a real change sets it to the stored value + 1, an insert (or a
  *                        stored document without one) to {@code initialVersion}. A no-op leaves it as it is.
  * @param initialVersion  the first value of the version field, an {@link Integer} or a {@link Long} (which also
- *                        decides its BSON type); increments keep the stored type
+ *                        decides its BSON type); increments keep the stored type. Without a version field,
+ *                        {@code null} stands for the default {@code 0L}
  */
 public record DiffsertOptions(
         Mode mode,
@@ -49,6 +50,9 @@ public record DiffsertOptions(
                 throw new IllegalArgumentException(
                         "versionField '" + versionField + "' must not be an ignored or preserved field as well");
             }
+        }
+        if (versionField == null && initialVersion == null) {
+            initialVersion = 0L;
         }
         if (!(initialVersion instanceof Integer || initialVersion instanceof Long)) {
             throw new IllegalArgumentException("initialVersion must be an Integer or a Long, got " + initialVersion);
@@ -119,13 +123,13 @@ public record DiffsertOptions(
 
         /** Fields that alone don't count as a change (see {@link DiffsertOptions#ignoredFields()}). */
         public Builder ignoreForChangeDetection(String... fields) {
-            ignoredFields.addAll(List.of(fields));
+            ignoredFields.addAll(Arrays.asList(fields));
             return this;
         }
 
         /** Fields whose stored value wins once set (see {@link DiffsertOptions#preservedFields()}). */
         public Builder preserveExistingValue(String... fields) {
-            preservedFields.addAll(List.of(fields));
+            preservedFields.addAll(Arrays.asList(fields));
             return this;
         }
 

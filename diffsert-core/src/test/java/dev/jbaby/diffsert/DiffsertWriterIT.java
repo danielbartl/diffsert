@@ -3,6 +3,7 @@ package dev.jbaby.diffsert;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.util.ArrayList;
 import java.util.Date;
@@ -21,6 +22,7 @@ import org.testcontainers.mongodb.MongoDBContainer;
 
 import com.mongodb.MongoBulkWriteException;
 import com.mongodb.MongoWriteException;
+import com.mongodb.WriteConcern;
 import com.mongodb.client.MongoClient;
 import com.mongodb.client.MongoClients;
 import com.mongodb.client.MongoCollection;
@@ -287,9 +289,14 @@ class DiffsertWriterIT {
     @Test
     void versionFieldFailsWriteOnNonNumericStoredValue() {
         collection.insertOne(customer("c1", "Acme", "Berlin").append("version", "v1"));
+        // $add alone would accept a date and add a millisecond
+        collection.insertOne(customer("c2", "Globex", "Munich").append("version", new Date(0)));
 
         assertThrows(MongoWriteException.class,
                 () -> versioned(writer).upsert(collection, customer("c1", "Acme", "Hamburg")));
+        assertThrows(MongoWriteException.class,
+                () -> versioned(writer).upsert(collection, customer("c2", "Globex", "Hamburg")));
+        assertEquals(new Date(0), stored("c2").get("version"));
     }
 
     @Test
@@ -300,6 +307,16 @@ class DiffsertWriterIT {
         assertThrows(IllegalArgumentException.class, () -> DiffsertOptions.builder().versionField("meta.v").build());
         assertThrows(IllegalArgumentException.class, () -> DiffsertOptions.builder().versionField("v", 0.0).build());
         assertThrows(IllegalArgumentException.class, () -> DiffsertOptions.builder().versionField("v", null).build());
+    }
+
+    @Test
+    void handlesNullsInOptions() {
+        var nullField = assertThrows(IllegalArgumentException.class,
+                () -> DiffsertOptions.builder().ignoreForChangeDetection("jobRunId", null).build());
+        assertTrue(nullField.getMessage().contains("ignoredFields"), nullField.getMessage());
+        assertEquals(DiffsertOptions.defaults(),
+                new DiffsertOptions(DiffsertOptions.Mode.REPLACE, Set.of(), Set.of(), false, null, null),
+                "no initial version needed without a version field");
     }
 
     // The following tests pin down server behavior that the README documents as caveats.
@@ -369,7 +386,7 @@ class DiffsertWriterIT {
 
     @Test
     void mergeModeKeepsStoredFieldOrder() {
-        // $mergeObjects keeps the position of fields that $$ROOT already has
+        // $mergeObjects keeps the position of fields that $$ROOT already has, with or without a change
         Document a = customer("c1", "Acme", "Berlin");
         writer.upsert(collection, a);
         DiffsertWriter merging = writer.withOptions(writer.options().toBuilder().merge().build());
@@ -381,6 +398,17 @@ class DiffsertWriterIT {
         });
 
         assertEquals(List.of(), events);
+        assertEquals(List.copyOf(a.keySet()), List.copyOf(stored("c1").keySet()));
+
+        Document moved = with(a, "city", "Hamburg");
+        var changes = eventsDuring(() -> {
+            assertEquals(WriteOutcome.UPDATED, merging.upsert(collection, withFieldsReversed(moved)));
+            assertEquals(WriteOutcome.UPDATED,
+                    plainMerging.upsert(collection, withFieldsReversed(with(moved, "name", "Acme AG"))));
+        });
+
+        assertEquals(List.of(Set.of("city"), Set.of("name")), changes.stream()
+                .map(e -> e.getUpdateDescription().getUpdatedFields().keySet()).toList());
         assertEquals(List.copyOf(a.keySet()), List.copyOf(stored("c1").keySet()));
     }
 
@@ -413,6 +441,17 @@ class DiffsertWriterIT {
     @Test
     void rejectsDocumentWithoutId() {
         assertThrows(IllegalArgumentException.class, () -> writer.upsert(collection, new Document("name", "Acme")));
+    }
+
+    @Test
+    void rejectsUnacknowledgedWriteConcern() {
+        // w: 0 doesn't tell what a write did, so fail before writing instead of after
+        var unacknowledged = collection.withWriteConcern(WriteConcern.UNACKNOWLEDGED);
+        Document a = customer("c1", "Acme", "Berlin");
+
+        assertThrows(IllegalArgumentException.class, () -> writer.upsert(unacknowledged, a));
+        assertThrows(IllegalArgumentException.class, () -> writer.upsertAll(unacknowledged, List.of(a)));
+        assertEquals(0, collection.countDocuments());
     }
 
     @Test
