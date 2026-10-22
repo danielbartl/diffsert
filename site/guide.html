@@ -171,7 +171,7 @@ h2:hover .anchor, h3:hover .anchor, .anchor:focus-visible { opacity: 1; }
       unchanged documents look changed.
     </p>
     <div class="note">
-      <p>Written for Diffsert 0.2.0. Features marked <span class="since">0.2.0</span> are not available in 0.1.x.</p>
+      <p>Written for Diffsert 0.3.0. Features and behavior marked with a version, such as <span class="since">0.3.0</span>, are new or changed in that version.</p>
     </div>
 
     <!-- ================================================================ purpose -->
@@ -261,12 +261,12 @@ h2:hover .anchor, h3:hover .anchor, .anchor:focus-visible { opacity: 1; }
 <pre><code><span class="k">&lt;dependency&gt;</span>
     <span class="k">&lt;groupId&gt;</span>dev.jbaby<span class="k">&lt;/groupId&gt;</span>
     <span class="k">&lt;artifactId&gt;</span>diffsert-spring-boot-starter<span class="k">&lt;/artifactId&gt;</span>
-    <span class="k">&lt;version&gt;</span>0.2.0<span class="k">&lt;/version&gt;</span>
+    <span class="k">&lt;version&gt;</span>0.3.0<span class="k">&lt;/version&gt;</span>
 <span class="k">&lt;/dependency&gt;</span></code></pre>
     </div>
     <div class="code">
       <div class="bar">build.gradle.kts <button class="copy" type="button">Copy</button></div>
-<pre><code>implementation(<span class="s">"dev.jbaby:diffsert-spring-boot-starter:0.2.0"</span>)</code></pre>
+<pre><code>implementation(<span class="s">"dev.jbaby:diffsert-spring-boot-starter:0.3.0"</span>)</code></pre>
     </div>
     <p>Requirements:</p>
     <ul>
@@ -528,7 +528,7 @@ BatchWriteResult result = writer.upsertAll(customers, documents);</code></pre>
       <li>On insert, the new document's value is written.</li>
       <li>After that, the stored value is kept, whatever the new document contains. A different value doesn't count as a change, so a preserved field doesn't need to be ignored as well.</li>
       <li>If the stored document doesn't have the field yet, for example because it was written before the field existed, the new value is written. That counts as a change, so it happens once, with the next write.</li>
-      <li>Leaving the field out of the new document doesn't remove it, not even in replace mode, and alone it's no change. With a real change in replace mode, the field is then written as the last field.</li>
+      <li>Leaving the field out of the new document doesn't remove it, not even in replace mode, and alone it's no change <span class="since" title="Changed in 0.3.0">0.3.0</span>. With a real change in replace mode, the field is then written as the last field.</li>
     </ul>
     <p>
       The last point also protects fields that another process writes: in replace mode, a preserved field is never
@@ -547,7 +547,7 @@ BatchWriteResult result = writer.upsertAll(customers, documents);</code></pre>
       <li>A real change sets it to the stored value + 1. The stored type is kept: an int stays an int, a long a long.</li>
       <li>An insert, or a stored document without a version, gets the initial value: 0, as a long. <code>versionField("version", 1L)</code> starts at 1; an <code>Integer</code> initial value, such as <code>versionField("version", 0)</code>, writes ints.</li>
       <li>A no-op leaves it as it is, including a write where only ignored fields differ.</li>
-      <li>If the stored value isn't a number (a date isn't either), a write with a real change fails.</li>
+      <li>If the stored value isn't a number (a date isn't either <span class="since" title="Changed in 0.3.0">0.3.0</span>), a write with a real change fails.</li>
     </ul>
     <div class="table-wrap">
       <table>
@@ -591,7 +591,7 @@ BatchWriteResult result = writer.upsertAll(customers, documents);</code></pre>
       <li><strong>The type key <code>_class</code> is removed</strong> by default, so documents don't change when you rename or move a class. Keep it with <code>withTypeKeyRemoved(false)</code> (property <code>diffsert.remove-type-key: false</code>) if you read the documents polymorphically, or if your application also writes them with <code>save()</code>. Otherwise <code>_class</code> counts as a change whenever the other side wrote last.</li>
       <li><strong><code>Document</code>s are written as they are</strong>, without conversion. The configured options apply, but nothing is derived from annotations.</li>
       <li><strong>One batch can mix entity types</strong> as long as they derive the same options, that is the same auditing fields and version field. Otherwise write them in separate batches.</li>
-      <li><strong>Write concern:</strong> writes use the write concern of the client or database, for example <code>?w=majority</code> in the connection string. One set on the template with <code>setWriteConcern</code> or a <code>WriteConcernResolver</code> doesn't apply; use <code>withWriteConcern(WriteConcern.MAJORITY)</code>. With the starter, call it where you inject the bean, so listeners and metrics stay attached: <code>this.diffsert = diffsert.withWriteConcern(...)</code>.</li>
+      <li><strong>Write concern:</strong> writes use the write concern of the client or database, for example <code>?w=majority</code> in the connection string. One set on the template with <code>setWriteConcern</code> or a <code>WriteConcernResolver</code> doesn't apply; use <code>withWriteConcern(WriteConcern.MAJORITY)</code> <span class="since" title="Added in 0.3.0">0.3.0</span>. With the starter, call it where you inject the bean, so listeners and metrics stay attached: <code>this.diffsert = diffsert.withWriteConcern(...)</code>.</li>
     </ul>
     <p>
       <code>optionsFor(CustomerDto.class)</code> <span class="since" title="Added in 0.2.0">0.2.0</span> returns the
@@ -652,7 +652,7 @@ Diffsert diffsert(MongoTemplate mongoTemplate,
     <ul>
       <li>Diffsert can't know whether a document exists before it writes, so it marks every entity like <code>save()</code> marks a new one: created and modified fields get the current time from your <code>DateTimeProvider</code> and the user from your <code>AuditorAware</code>. Preserving and ignoring then keep the right values on the server.</li>
       <li>Mutable entities get the values set in place. Records and other immutable classes need a wither or a single constructor, as with <code>save()</code>. A second, shorter constructor makes Spring fail with "no setter, wither or copy constructor"; use a static factory such as <code>Order.of(...)</code> instead.</li>
-      <li>With <code>setModifyOnCreation(false)</code> on the handler, Diffsert still sets the modified fields to the current time, also when the entity already has values in them (for example after loading it), because it can't tell an insert from an update.</li>
+      <li>With <code>setModifyOnCreation(false)</code> on the handler, Diffsert still sets the modified fields to the current time, also when the entity already has values in them (for example after loading it) <span class="since" title="Changed in 0.3.0">0.3.0</span>, because it can't tell an insert from an update.</li>
       <li>A stored document without a created date, for example from before auditing was enabled, gets the current time with its next write. That write counts as a change once.</li>
       <li>Only top-level properties are supported: an entity with auditing annotations inside an embedded object is rejected.</li>
     </ul>
@@ -665,7 +665,7 @@ Diffsert diffsert(MongoTemplate mongoTemplate,
 
     <!-- ================================================================ boot -->
     <h2 id="boot">Spring Boot starter</h2>
-    <p>The starter auto-configures a <code>Diffsert</code> bean when the application has a single <code>MongoOperations</code> bean, such as Boot's <code>MongoTemplate</code>, or one marked <code>@Primary</code>. With several and none of them primary, for example one template per database, it backs off: define a <code>Diffsert</code> bean per template yourself. Properties:</p>
+    <p>The starter auto-configures a <code>Diffsert</code> bean when the application has a single <code>MongoOperations</code> bean, such as Boot's <code>MongoTemplate</code>, or one marked <code>@Primary</code>. With several and none of them primary, for example one template per database, it backs off <span class="since" title="Changed in 0.3.0">0.3.0</span>: define a <code>Diffsert</code> bean per template yourself. Properties:</p>
     <div class="table-wrap">
       <table>
         <thead><tr><th scope="col">Property</th><th scope="col">Default</th><th scope="col">Meaning</th></tr></thead>
@@ -680,7 +680,7 @@ Diffsert diffsert(MongoTemplate mongoTemplate,
       </table>
     </div>
     <ul>
-      <li><strong>Options in code:</strong> define a <code>DiffsertOptions</code> bean. It replaces all option properties above; only <code>remove-type-key</code> still applies. With several <code>DiffsertOptions</code> beans, for example for writers of your own, the one marked <code>@Primary</code> is used, and without one the properties.</li>
+      <li><strong>Options in code:</strong> define a <code>DiffsertOptions</code> bean. It replaces all option properties above; only <code>remove-type-key</code> still applies. With several <code>DiffsertOptions</code> beans, for example for writers of your own, the one marked <code>@Primary</code> is used, and without one the properties <span class="since" title="Changed in 0.3.0">0.3.0</span>.</li>
       <li><strong>Listeners:</strong> every <code>DiffsertListener</code> bean is called after each write, in <code>@Order</code>. A failing listener is logged as a warning and affects neither the write, the caller nor the other listeners.</li>
       <li><strong>Metrics:</strong> with Micrometer and a <code>MeterRegistry</code>, the counter <code>diffsert.documents</code> counts written documents, tagged with <code>collection</code> and <code>outcome</code> (<code>inserted</code>, <code>updated</code>, <code>unchanged</code>, <code>not_found</code>).</li>
       <li><strong>Auditing</strong> <span class="since" title="Added in 0.2.0">0.2.0</span>: with <code>@EnableMongoAuditing</code>, auditing is handled automatically.</li>
@@ -839,7 +839,7 @@ models.add(<span class="k">new</span> DeleteManyModel&lt;&gt;(Filters.eq(<span c
         <thead><tr><th scope="col">Message starts with</th><th scope="col">Cause</th></tr></thead>
         <tbody>
           <tr><td><code>entity has no id</code>, <code>document has no _id</code></td><td>The id is missing or <code>null</code>.</td></tr>
-          <tr><td><code>collection … has an unacknowledged write concern</code></td><td>The collection uses <code>w: 0</code>, which doesn't tell what a write did.</td></tr>
+          <tr><td><code>collection … has an unacknowledged write concern</code></td><td>The collection uses <code>w: 0</code>, which doesn't tell what a write did. <span class="since" title="Added in 0.3.0">0.3.0</span></td></tr>
           <tr><td><code>ignoredFields: only top-level field names other than _id are supported</code></td><td>The same for <code>preservedFields</code> and <code>versionField</code>: a dotted name, <code>_id</code>, a name starting with <code>$</code>, or a blank one.</td></tr>
           <tr><td><code>versionField '…' must not be an ignored or preserved field as well</code></td><td>One field configured twice.</td></tr>
           <tr><td><code>auditing field '…' of … is nested</code></td><td>An auditing annotation inside an embedded object. <span class="since">0.2.0</span></td></tr>

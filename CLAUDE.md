@@ -105,7 +105,8 @@ so downstream logic fired for every document even when nothing relevant changed.
 4. ~~Split into modules~~ (done, see Current state).
 5. ~~README~~ (done).
 6. ~~Publishing setup~~ (done; 0.1.1 added Java 21 support, 0.2.0 (2026-10-21) auditing, `@Version` and `_id`
-   order; see Releasing below).
+   order, 0.3.0 (2026-10-22) code review fixes, `withWriteConcern` and the preserved field position; see Releasing
+   below).
 7. Later ideas: reactive variant, nested (dotted) ignored/preserved fields, optional change stream verification
    helper (sentinel-based event collection as in the IT).
 
